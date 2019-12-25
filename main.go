@@ -26,8 +26,8 @@ import (
 	"path/filepath"
 
 	"github.com/BurntSushi/toml"
-	vConfig "github.com/katzenpost/authority/voting/server/config"
 	aConfig "github.com/katzenpost/authority/nonvoting/server/config"
+	vConfig "github.com/katzenpost/authority/voting/server/config"
 	"github.com/katzenpost/core/crypto/ecdh"
 	"github.com/katzenpost/core/crypto/eddsa"
 	"github.com/katzenpost/core/crypto/rand"
@@ -36,19 +36,20 @@ import (
 )
 
 const (
-	basePort    = 30000
-	nrNodes     = 6
-	nrProviders = 2
+	basePort      = 30000
+	nrNodes       = 6
+	nrProviders   = 2
 	nrAuthorities = 3
 )
 
 type katzenpost struct {
 	baseDir   string
+	outputDir string
 	logWriter io.Writer
 
-	authConfig    *aConfig.Config
+	authConfig        *aConfig.Config
 	votingAuthConfigs []*vConfig.Config
-	authIdentity  *eddsa.PrivateKey
+	authIdentity      *eddsa.PrivateKey
 
 	nodeConfigs []*sConfig.Config
 	lastPort    uint16
@@ -61,23 +62,23 @@ type katzenpost struct {
 func (s *katzenpost) genNodeConfig(isProvider bool, isVoting bool) error {
 	const serverLogFile = "katzenpost.log"
 
-	n := fmt.Sprintf("node-%d", s.nodeIdx)
+	name := fmt.Sprintf("node-%d", s.nodeIdx)
 	if isProvider {
-		n = fmt.Sprintf("provider-%d", s.providerIdx)
+		name = fmt.Sprintf("provider-%d", s.providerIdx)
 	}
 	cfg := new(sConfig.Config)
 
 	// Server section.
 	cfg.Server = new(sConfig.Server)
-	cfg.Server.Identifier = n
+	cfg.Server.Identifier = name
 	cfg.Server.Addresses = []string{fmt.Sprintf("127.0.0.1:%d", s.lastPort)}
 	cfg.Server.AltAddresses = map[string][]string{
 		"TCP":   []string{fmt.Sprintf("localhost:%d", s.lastPort)},
 		"torv2": []string{"onedaythiswillbea.onion:2323"},
 	}
 
-	cfg.Server.DataDir = filepath.Join(s.baseDir, n)
-	os.Mkdir(cfg.Server.DataDir, 0700)
+	cfg.Server.DataDir = filepath.Join(s.baseDir, name)
+	os.Mkdir(s.outputDir+"/"+name, 0700)
 	cfg.Server.IsProvider = isProvider
 
 	// Debug section.
@@ -177,7 +178,9 @@ func (s *katzenpost) genAuthConfig() error {
 	// Authority section.
 	cfg.Authority = new(aConfig.Authority)
 	cfg.Authority.Addresses = []string{fmt.Sprintf("127.0.0.1:%d", basePort)}
-	cfg.Authority.DataDir = filepath.Join(s.baseDir, "authority")
+	name := "nonvoting"
+	cfg.Authority.DataDir = filepath.Join(s.baseDir)
+	confPath := filepath.Join(s.outputDir, name)
 
 	// Logging section.
 	cfg.Logging = new(aConfig.Logging)
@@ -185,11 +188,11 @@ func (s *katzenpost) genAuthConfig() error {
 	cfg.Logging.Level = "DEBUG"
 
 	// Mkdir
-	os.Mkdir(cfg.Authority.DataDir, 0700)
+	os.Mkdir(confPath, 0700)
 
 	// Generate keys
-	priv := filepath.Join(cfg.Authority.DataDir, "identity.private.pem")
-	public := filepath.Join(cfg.Authority.DataDir, "identity.public.pem")
+	priv := filepath.Join(confPath, "identity.private.pem")
+	public := filepath.Join(confPath, "identity.public.pem")
 	idKey, err := eddsa.Load(priv, public, rand.Reader)
 	s.authIdentity = idKey
 	if err != nil {
@@ -198,7 +201,6 @@ func (s *katzenpost) genAuthConfig() error {
 
 	// Debug section.
 	cfg.Debug = new(aConfig.Debug)
-
 	if err := cfg.FixupAndValidate(); err != nil {
 		return err
 	}
@@ -225,8 +227,8 @@ func (s *katzenpost) genVotingAuthoritiesCfg(numAuthorities int) error {
 			Addresses:  []string{fmt.Sprintf("127.0.0.1:%d", s.lastPort)},
 			DataDir:    filepath.Join(s.baseDir, fmt.Sprintf("authority-%d", i)),
 		}
-		os.Mkdir(cfg.Authority.DataDir, 0700)
-		s.lastPort += 1
+		os.Mkdir(s.outputDir+"/"+cfg.Authority.Identifier, 0700)
+		s.lastPort++
 		priv := filepath.Join(cfg.Authority.DataDir, "identity.private.pem")
 		public := filepath.Join(cfg.Authority.DataDir, "identity.public.pem")
 		idKey, err := eddsa.Load(priv, public, rand.Reader)
@@ -373,20 +375,21 @@ func main() {
 	nrProviders := flag.Int("p", nrProviders, "Number of providers.")
 	voting := flag.Bool("v", false, "Generate voting configuration")
 	nrVoting := flag.Int("nv", nrAuthorities, "Generate voting configuration")
-	baseDir := flag.String("b", "", "Path to use as baseDir option")
+	baseDir := flag.String("b", "/conf", "Path to use as baseDir option")
+	outputDir := flag.String("o", "./", "OutputDir")
 	flag.Parse()
 	s := &katzenpost{
 		lastPort:   basePort + 1,
 		recipients: make(map[string]*ecdh.PublicKey),
 	}
 
-	bd, err := filepath.Abs(*baseDir); if err != nil {
+	outDir, err := filepath.Abs(*outputDir)
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to create base directory: %v\n", err)
 		os.Exit(-1)
-		return
 	} else {
-		s.baseDir = bd
-		os.Mkdir(bd, 0700)
+		s.outputDir = outDir
+		s.baseDir = *baseDir
 	}
 
 	if *voting {
@@ -425,7 +428,7 @@ func main() {
 			aCfg.Providers = providerWhitelist
 		}
 		for _, aCfg := range s.votingAuthConfigs {
-			if err := saveCfg(aCfg); err != nil {
+			if err := saveCfg(outDir, aCfg); err != nil {
 				log.Fatalf("Failed to saveCfg of authority with %s", err)
 			}
 		}
@@ -438,13 +441,13 @@ func main() {
 			log.Fatalf("Failed to generateWhitelist with %s", err)
 		}
 
-		if err := saveCfg(s.authConfig); err != nil {
+		if err := saveCfg(outDir, s.authConfig); err != nil {
 			log.Fatalf("Failed to saveCfg of authority with %s", err)
 		}
 	}
 	// write the mixes keys and configs to disk
 	for _, v := range s.nodeConfigs {
-		if err := saveCfg(v); err != nil {
+		if err := saveCfg(outDir, v); err != nil {
 			log.Fatalf("%s", err)
 		}
 	}
@@ -458,6 +461,20 @@ func basedir(cfg interface{}) string {
 		return cfg.(*aConfig.Config).Authority.DataDir
 	case *vConfig.Config:
 		return cfg.(*vConfig.Config).Authority.DataDir
+	default:
+		log.Fatalf("identifier() passed unexpected type")
+		return ""
+	}
+}
+
+func configName(cfg interface{}) string {
+	switch cfg.(type) {
+	case *sConfig.Config:
+		return "authority.toml"
+	case *aConfig.Config:
+		return "katzenpost.toml"
+	case *vConfig.Config:
+		return "katzenpost.toml"
 	default:
 		log.Fatalf("identifier() passed unexpected type")
 		return ""
@@ -478,8 +495,10 @@ func identifier(cfg interface{}) string {
 	}
 }
 
-func saveCfg(cfg interface{}) error {
-	fileName := filepath.Join(basedir(cfg), fmt.Sprintf("%s.toml", identifier(cfg)))
+func saveCfg(outputDir string, cfg interface{}) error {
+	fileName := filepath.Join(
+		outputDir, identifier(cfg), configName(cfg),
+	)
 	log.Printf("saveCfg of %s", fileName)
 	f, err := os.Create(fileName)
 	if err != nil {
