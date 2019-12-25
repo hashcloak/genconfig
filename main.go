@@ -66,6 +66,7 @@ func (s *katzenpost) genNodeConfig(isProvider bool, isVoting bool) error {
 	if isProvider {
 		name = fmt.Sprintf("provider-%d", s.providerIdx)
 	}
+	os.Mkdir(filepath.Join(s.outputDir, name), 0700)
 	cfg := new(sConfig.Config)
 
 	// Server section.
@@ -77,8 +78,7 @@ func (s *katzenpost) genNodeConfig(isProvider bool, isVoting bool) error {
 		"torv2": []string{"onedaythiswillbea.onion:2323"},
 	}
 
-	cfg.Server.DataDir = filepath.Join(s.baseDir, name)
-	os.Mkdir(s.outputDir+"/"+name, 0700)
+	cfg.Server.DataDir = s.baseDir
 	cfg.Server.IsProvider = isProvider
 
 	// Debug section.
@@ -88,12 +88,12 @@ func (s *katzenpost) genNodeConfig(isProvider bool, isVoting bool) error {
 	if isVoting {
 		peers := []*sConfig.Peer{}
 		for _, peer := range s.votingAuthConfigs {
-			idKey, err := apk(peer).MarshalText()
+			idKey, err := s.apk(peer).MarshalText()
 			if err != nil {
 				return err
 			}
 
-			linkKey, err := alk(peer).MarshalText()
+			linkKey, err := s.alk(peer).MarshalText()
 			if err != nil {
 				return err
 			}
@@ -149,19 +149,6 @@ func (s *katzenpost) genNodeConfig(isProvider bool, isVoting bool) error {
 		keysvrCfg.Endpoint = "+keyserver"
 		cfg.Provider.Kaetzchen = append(cfg.Provider.Kaetzchen, keysvrCfg)
 
-		/*
-			if s.providerIdx == 1 {
-				cfg.Debug.NumProviderWorkers = 10
-				cfg.Provider.SQLDB = new(sConfig.SQLDB)
-				cfg.Provider.SQLDB.Backend = "pgx"
-				cfg.Provider.SQLDB.DataSourceName = "host=localhost port=5432 database=katzenpost sslmode=disable"
-				cfg.Provider.UserDB = new(sConfig.UserDB)
-				cfg.Provider.UserDB.Backend = sConfig.BackendSQL
-
-				cfg.Provider.SpoolDB = new(sConfig.SpoolDB)
-				cfg.Provider.SpoolDB.Backend = sConfig.BackendSQL
-			}
-		*/
 	} else {
 		s.nodeIdx++
 	}
@@ -171,31 +158,28 @@ func (s *katzenpost) genNodeConfig(isProvider bool, isVoting bool) error {
 }
 
 func (s *katzenpost) genAuthConfig() error {
-	const authLogFile = "authority.log"
-
+	authLogFile := s.baseDir + "/" + "authority.log"
 	cfg := new(aConfig.Config)
 
 	// Authority section.
 	cfg.Authority = new(aConfig.Authority)
 	cfg.Authority.Addresses = []string{fmt.Sprintf("127.0.0.1:%d", basePort)}
-	name := "nonvoting"
 	cfg.Authority.DataDir = filepath.Join(s.baseDir)
-	confPath := filepath.Join(s.outputDir, name)
 
 	// Logging section.
 	cfg.Logging = new(aConfig.Logging)
 	cfg.Logging.File = authLogFile
 	cfg.Logging.Level = "DEBUG"
 
-	// Mkdir
-	os.Mkdir(confPath, 0700)
-
+	name := "nonvoting"
+	os.Mkdir(filepath.Join(s.outputDir, name), 0700)
 	// Generate keys
-	priv := filepath.Join(confPath, "identity.private.pem")
-	public := filepath.Join(confPath, "identity.public.pem")
+	priv := filepath.Join(filepath.Join(s.outputDir, name), "identity.private.pem")
+	public := filepath.Join(filepath.Join(s.outputDir, name), "identity.public.pem")
 	idKey, err := eddsa.Load(priv, public, rand.Reader)
 	s.authIdentity = idKey
 	if err != nil {
+		fmt.Println("HI")
 		return err
 	}
 
@@ -243,18 +227,18 @@ func (s *katzenpost) genVotingAuthoritiesCfg(numAuthorities int) error {
 		}
 		configs = append(configs, cfg)
 		authorityPeer := &vConfig.AuthorityPeer{
-			IdentityPublicKey: apk(cfg),
-			LinkPublicKey:     alk(cfg),
+			IdentityPublicKey: s.apk(cfg),
+			LinkPublicKey:     s.alk(cfg),
 			Addresses:         cfg.Authority.Addresses,
 		}
-		peersMap[apk(cfg).ByteArray()] = authorityPeer
+		peersMap[s.apk(cfg).ByteArray()] = authorityPeer
 	}
 
 	// tell each authority about it's peers
 	for i := 0; i < numAuthorities; i++ {
 		peers := []*vConfig.AuthorityPeer{}
 		for id, peer := range peersMap {
-			if !bytes.Equal(id[:], apk(configs[i]).Bytes()) {
+			if !bytes.Equal(id[:], s.apk(configs[i]).Bytes()) {
 				peers = append(peers, peer)
 			}
 		}
@@ -271,13 +255,13 @@ func (s *katzenpost) generateWhitelist() ([]*aConfig.Node, []*aConfig.Node, erro
 		if nodeCfg.Server.IsProvider {
 			provider := &aConfig.Node{
 				Identifier:  nodeCfg.Server.Identifier,
-				IdentityKey: spk(nodeCfg),
+				IdentityKey: s.spk(nodeCfg),
 			}
 			providers = append(providers, provider)
 			continue
 		}
 		mix := &aConfig.Node{
-			IdentityKey: spk(nodeCfg),
+			IdentityKey: s.spk(nodeCfg),
 		}
 		mixes = append(mixes, mix)
 	}
@@ -288,17 +272,18 @@ func (s *katzenpost) generateWhitelist() ([]*aConfig.Node, []*aConfig.Node, erro
 func (s *katzenpost) generateVotingWhitelist() ([]*vConfig.Node, []*vConfig.Node, error) {
 	mixes := []*vConfig.Node{}
 	providers := []*vConfig.Node{}
+
 	for _, nodeCfg := range s.nodeConfigs {
 		if nodeCfg.Server.IsProvider {
 			provider := &vConfig.Node{
 				Identifier:  nodeCfg.Server.Identifier,
-				IdentityKey: spk(nodeCfg),
+				IdentityKey: s.spk(nodeCfg),
 			}
 			providers = append(providers, provider)
 			continue
 		}
 		mix := &vConfig.Node{
-			IdentityKey: spk(nodeCfg),
+			IdentityKey: s.spk(nodeCfg),
 		}
 		mixes = append(mixes, mix)
 	}
@@ -393,9 +378,7 @@ func main() {
 	}
 
 	if *voting {
-		// Generate the voting authority configurations
-		err := s.genVotingAuthoritiesCfg(*nrVoting)
-		if err != nil {
+		if err = s.genVotingAuthoritiesCfg(*nrVoting); err != nil {
 			log.Fatalf("getVotingAuthoritiesCfg failed: %s", err)
 		}
 	} else {
@@ -445,11 +428,12 @@ func main() {
 			log.Fatalf("Failed to saveCfg of authority with %s", err)
 		}
 	}
-	// write the mixes keys and configs to disk
+
 	for _, v := range s.nodeConfigs {
 		if err := saveCfg(outDir, v); err != nil {
 			log.Fatalf("%s", err)
 		}
+
 	}
 }
 
@@ -470,11 +454,11 @@ func basedir(cfg interface{}) string {
 func configName(cfg interface{}) string {
 	switch cfg.(type) {
 	case *sConfig.Config:
-		return "authority.toml"
+		return "katzenpost.toml"
 	case *aConfig.Config:
-		return "katzenpost.toml"
+		return "authority.toml"
 	case *vConfig.Config:
-		return "katzenpost.toml"
+		return "authority.toml"
 	default:
 		log.Fatalf("identifier() passed unexpected type")
 		return ""
@@ -496,6 +480,9 @@ func identifier(cfg interface{}) string {
 }
 
 func saveCfg(outputDir string, cfg interface{}) error {
+	saveDir := filepath.Join(outputDir, identifier(cfg))
+	os.Mkdir(saveDir, 0700)
+
 	fileName := filepath.Join(
 		outputDir, identifier(cfg), configName(cfg),
 	)
@@ -510,35 +497,34 @@ func saveCfg(outputDir string, cfg interface{}) error {
 	return enc.Encode(cfg)
 }
 
-func apk(a *vConfig.Config) *eddsa.PublicKey {
-	priv := filepath.Join(a.Authority.DataDir, "identity.private.pem")
-	public := filepath.Join(a.Authority.DataDir, "identity.public.pem")
+// links beteween voting authorities
+func (s *katzenpost) apk(a *vConfig.Config) *eddsa.PublicKey {
+	priv := filepath.Join(s.outputDir, a.Authority.Identifier, "identity.private.pem")
+	public := filepath.Join(s.outputDir, a.Authority.Identifier, "identity.private.pem")
 	idKey, err := eddsa.Load(priv, public, rand.Reader)
 	if err != nil {
-		return nil
-	} else {
-		return idKey.PublicKey()
+		panic(err)
 	}
+	return idKey.PublicKey()
 }
 
-func spk(a *sConfig.Config) *eddsa.PublicKey {
-	priv := filepath.Join(a.Server.DataDir, "identity.private.pem")
-	public := filepath.Join(a.Server.DataDir, "identity.public.pem")
+// links between mix and providers
+func (s *katzenpost) spk(a *sConfig.Config) *eddsa.PublicKey {
+	priv := filepath.Join(s.outputDir, a.Server.Identifier, "identity.private.pem")
+	public := filepath.Join(s.outputDir, a.Server.Identifier, "identity.public.pem")
 	idKey, err := eddsa.Load(priv, public, rand.Reader)
 	if err != nil {
-		return nil
-	} else {
-		return idKey.PublicKey()
+		panic(err)
 	}
+	return idKey.PublicKey()
 }
 
-func alk(a *vConfig.Config) *ecdh.PublicKey {
-	linkpriv := filepath.Join(a.Authority.DataDir, "link.private.pem")
-	linkpublic := filepath.Join(a.Authority.DataDir, "link.public.pem")
+func (s *katzenpost) alk(a *vConfig.Config) *ecdh.PublicKey {
+	linkpriv := filepath.Join(s.outputDir, a.Authority.Identifier, "link.private.pem")
+	linkpublic := filepath.Join(s.outputDir, a.Authority.Identifier, "link.public.pem")
 	linkKey, err := ecdh.Load(linkpriv, linkpublic, rand.Reader)
 	if err != nil {
-		return nil
-	} else {
-		return linkKey.PublicKey()
+		panic(err)
 	}
+	return linkKey.PublicKey()
 }
