@@ -26,6 +26,7 @@ import (
 	"path/filepath"
 
 	"github.com/BurntSushi/toml"
+	currencyConf "github.com/hashcloak/Meson/plugin/pkg/config"
 	aConfig "github.com/katzenpost/authority/nonvoting/server/config"
 	vConfig "github.com/katzenpost/authority/voting/server/config"
 	"github.com/katzenpost/core/crypto/ecdh"
@@ -186,20 +187,47 @@ func (s *katzenpost) genNodeConfig(isProvider bool, isVoting bool) error {
 		}
 		cfg.Provider.CBORPluginKaetzchen = append(cfg.Provider.CBORPluginKaetzchen, &spoolPlugin)
 
+		ticker := "gor"
 		pluginConf = make(map[string]interface{})
 		pluginConf["f"] = s.baseDir + "/currency.toml"
 		pluginConf["log_dir"] = s.baseDir
 		pluginConf["log_level"] = cfg.Logging.Level
 		mesonPlugin := sConfig.CBORPluginKaetzchen{
 			Disable:        false,
-			Capability:     "gor",
-			Endpoint:       "+gor",
+			Capability:     ticker,
+			Endpoint:       "+" + ticker,
 			Command:        "/go/bin/Meson",
 			MaxConcurrency: 1,
 			Config:         pluginConf,
 		}
 		cfg.Provider.CBORPluginKaetzchen = append(cfg.Provider.CBORPluginKaetzchen, &mesonPlugin)
-		s.generateAndSaveCurrency(mesonPlugin.Capability)
+
+		curConf := currencyConf.Config{
+			Ticker:   ticker,
+			ChainID:  5,
+			RPCUser:  "rpcuser",
+			RPCPass:  "rpcpassword",
+			RPCURL:   "https://goerli.hashcloak.com",
+			LogDir:   s.baseDir,
+			LogLevel: cfg.Logging.Level,
+		}
+
+		os.Mkdir(filepath.Join(s.outputDir, identifier(cfg)), 0700)
+		fileName := filepath.Join(
+			s.outputDir, identifier(cfg), "currency.toml",
+		)
+		log.Printf("saveCfg of %s", fileName)
+		f, err := os.Create(fileName)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		// Serialize the descriptor.
+		enc := toml.NewEncoder(f)
+		err = enc.Encode(curConf)
+		if err != nil {
+			return err
+		}
 
 	} else {
 		s.nodeIdx++
@@ -207,10 +235,6 @@ func (s *katzenpost) genNodeConfig(isProvider bool, isVoting bool) error {
 	s.nodeConfigs = append(s.nodeConfigs, cfg)
 	s.lastPort++
 	return cfg.FixupAndValidate()
-}
-
-func (s *katzenpost) generateAndSaveCurrency(ticker string) {
-
 }
 
 func (s *katzenpost) genAuthConfig() error {
@@ -235,7 +259,6 @@ func (s *katzenpost) genAuthConfig() error {
 	idKey, err := eddsa.Load(priv, public, rand.Reader)
 	s.authIdentity = idKey
 	if err != nil {
-		fmt.Println("HI")
 		return err
 	}
 
@@ -473,8 +496,7 @@ func identifier(cfg interface{}) string {
 }
 
 func saveCfg(outputDir string, cfg interface{}) error {
-	saveDir := filepath.Join(outputDir, identifier(cfg))
-	os.Mkdir(saveDir, 0700)
+	os.Mkdir(filepath.Join(outputDir, identifier(cfg)), 0700)
 
 	fileName := filepath.Join(
 		outputDir, identifier(cfg), configName(cfg),
