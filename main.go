@@ -31,7 +31,6 @@ import (
 	"github.com/katzenpost/core/crypto/ecdh"
 	"github.com/katzenpost/core/crypto/eddsa"
 	"github.com/katzenpost/core/crypto/rand"
-	pConfig "github.com/katzenpost/mailproxy/config"
 	sConfig "github.com/katzenpost/server/config"
 )
 
@@ -136,9 +135,7 @@ func (s *katzenpost) genNodeConfig(isProvider bool, isVoting bool) error {
 		cfg.Management.Enable = true
 
 		s.providerIdx++
-
 		cfg.Provider = new(sConfig.Provider)
-
 		loopCfg := new(sConfig.Kaetzchen)
 		loopCfg.Capability = "loop"
 		loopCfg.Endpoint = "+loop"
@@ -149,12 +146,71 @@ func (s *katzenpost) genNodeConfig(isProvider bool, isVoting bool) error {
 		keysvrCfg.Endpoint = "+keyserver"
 		cfg.Provider.Kaetzchen = append(cfg.Provider.Kaetzchen, keysvrCfg)
 
+		// Plugin confings
+		pluginConf := make(map[string]interface{})
+		pluginConf["log_dir"] = s.baseDir
+		pluginConf["log_level"] = cfg.Logging.Level
+
+		echoPlugin := sConfig.CBORPluginKaetzchen{
+			Disable:        false,
+			Capability:     "echo",
+			Endpoint:       "+echo",
+			Command:        "/go/bin/echo_server",
+			MaxConcurrency: 1,
+			Config:         pluginConf,
+		}
+		cfg.Provider.CBORPluginKaetzchen = append(cfg.Provider.CBORPluginKaetzchen, &echoPlugin)
+
+		pandaPlugin := sConfig.CBORPluginKaetzchen{
+			Disable:        false,
+			Capability:     "panda",
+			Endpoint:       "+panda",
+			Command:        "/go/bin/panda",
+			MaxConcurrency: 1,
+			Config:         pluginConf,
+		}
+		cfg.Provider.CBORPluginKaetzchen = append(cfg.Provider.CBORPluginKaetzchen, &pandaPlugin)
+
+		pluginConf = make(map[string]interface{})
+		// leaving this one out until it can be proven that it won't crash the spool plugin
+		//pluginconf["log_dir"] = s.basedir
+		pluginConf["log_level"] = cfg.Logging.Level
+		pluginConf["data_store"] = s.baseDir + "/memspool.storage"
+		spoolPlugin := sConfig.CBORPluginKaetzchen{
+			Disable:        false,
+			Capability:     "spool",
+			Endpoint:       "+spool",
+			Command:        "/go/bin/memspool",
+			MaxConcurrency: 1,
+			Config:         pluginConf,
+		}
+		cfg.Provider.CBORPluginKaetzchen = append(cfg.Provider.CBORPluginKaetzchen, &spoolPlugin)
+
+		pluginConf = make(map[string]interface{})
+		pluginConf["f"] = s.baseDir + "/currency.toml"
+		pluginConf["log_dir"] = s.baseDir
+		pluginConf["log_level"] = cfg.Logging.Level
+		mesonPlugin := sConfig.CBORPluginKaetzchen{
+			Disable:        false,
+			Capability:     "gor",
+			Endpoint:       "+gor",
+			Command:        "/go/bin/Meson",
+			MaxConcurrency: 1,
+			Config:         pluginConf,
+		}
+		cfg.Provider.CBORPluginKaetzchen = append(cfg.Provider.CBORPluginKaetzchen, &mesonPlugin)
+		s.generateAndSaveCurrency(mesonPlugin.Capability)
+
 	} else {
 		s.nodeIdx++
 	}
 	s.nodeConfigs = append(s.nodeConfigs, cfg)
 	s.lastPort++
 	return cfg.FixupAndValidate()
+}
+
+func (s *katzenpost) generateAndSaveCurrency(ticker string) {
+
 }
 
 func (s *katzenpost) genAuthConfig() error {
@@ -289,69 +345,6 @@ func (s *katzenpost) generateVotingWhitelist() ([]*vConfig.Node, []*vConfig.Node
 	}
 
 	return providers, mixes, nil
-}
-
-func (s *katzenpost) newMailProxy(user, provider string, privateKey *ecdh.PrivateKey) (*pConfig.Config, error) {
-	const (
-		proxyLogFile = "katzenpost.log"
-		authID       = "testAuth"
-	)
-
-	cfg := new(pConfig.Config)
-
-	dispName := fmt.Sprintf("mailproxy-%v@%v", user, provider)
-
-	// Proxy section.
-	cfg.Proxy = new(pConfig.Proxy)
-	cfg.Proxy.POP3Address = fmt.Sprintf("127.0.0.1:%d", s.lastPort)
-	s.lastPort++
-	cfg.Proxy.SMTPAddress = fmt.Sprintf("127.0.0.1:%d", s.lastPort)
-	s.lastPort++
-	cfg.Proxy.DataDir = filepath.Join(s.baseDir, dispName)
-
-	// Logging section.
-	cfg.Logging = new(pConfig.Logging)
-	cfg.Logging.File = proxyLogFile
-	cfg.Logging.Level = "DEBUG"
-
-	// Management section.
-	cfg.Management = new(pConfig.Management)
-	cfg.Management.Enable = true
-
-	// Authority section.
-	cfg.NonvotingAuthority = make(map[string]*pConfig.NonvotingAuthority)
-	auth := new(pConfig.NonvotingAuthority)
-	auth.Address = fmt.Sprintf("127.0.0.1:%d", basePort)
-	auth.PublicKey = s.authIdentity.PublicKey()
-	cfg.NonvotingAuthority[authID] = auth
-
-	// Account section.
-	acc := new(pConfig.Account)
-	acc.User = user
-	acc.Provider = provider
-	acc.NonvotingAuthority = authID
-	acc.LinkKey = privateKey
-	acc.IdentityKey = privateKey
-	// acc.StorageKey = privateKey
-	cfg.Account = append(cfg.Account, acc)
-
-	// UpstreamProxy section.
-	/*
-		cfg.UpstreamProxy = new(pConfig.UpstreamProxy)
-		cfg.UpstreamProxy.Type = "tor+socks5"
-		// cfg.UpstreamProxy.Network = "unix"
-		// cfg.UpstreamProxy.Address = "/tmp/socks.socket"
-		cfg.UpstreamProxy.Network = "tcp"
-		cfg.UpstreamProxy.Address = "127.0.0.1:1080"
-	*/
-
-	// Recipients section.
-	cfg.Recipients = s.recipients
-
-	if err := cfg.FixupAndValidate(); err != nil {
-		return nil, err
-	}
-	return cfg, nil
 }
 
 func main() {
