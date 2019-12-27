@@ -148,10 +148,10 @@ func (s *katzenpost) genNodeConfig(isProvider bool, isVoting bool) error {
 		cfg.Provider.Kaetzchen = append(cfg.Provider.Kaetzchen, keysvrCfg)
 
 		// Plugin confings
+		// echo server
 		pluginConf := make(map[string]interface{})
 		pluginConf["log_dir"] = s.baseDir
 		pluginConf["log_level"] = cfg.Logging.Level
-
 		echoPlugin := sConfig.CBORPluginKaetzchen{
 			Disable:        false,
 			Capability:     "echo",
@@ -162,20 +162,26 @@ func (s *katzenpost) genNodeConfig(isProvider bool, isVoting bool) error {
 		}
 		cfg.Provider.CBORPluginKaetzchen = append(cfg.Provider.CBORPluginKaetzchen, &echoPlugin)
 
+		// panda serever
+		pluginConf := make(map[string]interface{})
+		pluginConf["log_dir"] = s.baseDir
+		pluginConf["log_level"] = cfg.Logging.Level
+		pluginConf["fileStore"] = s.baseDir
 		pandaPlugin := sConfig.CBORPluginKaetzchen{
 			Disable:        false,
 			Capability:     "panda",
 			Endpoint:       "+panda",
-			Command:        "/go/bin/panda",
+			Command:        "/go/bin/panda_server",
 			MaxConcurrency: 1,
 			Config:         pluginConf,
 		}
 		cfg.Provider.CBORPluginKaetzchen = append(cfg.Provider.CBORPluginKaetzchen, &pandaPlugin)
 
+		// memspool
 		pluginConf = make(map[string]interface{})
 		// leaving this one out until it can be proven that it won't crash the spool plugin
 		//pluginconf["log_dir"] = s.basedir
-		pluginConf["log_level"] = cfg.Logging.Level
+		pluginConf["log_dir"] = s.baseDir
 		pluginConf["data_store"] = s.baseDir + "/memspool.storage"
 		spoolPlugin := sConfig.CBORPluginKaetzchen{
 			Disable:        false,
@@ -187,6 +193,7 @@ func (s *katzenpost) genNodeConfig(isProvider bool, isVoting bool) error {
 		}
 		cfg.Provider.CBORPluginKaetzchen = append(cfg.Provider.CBORPluginKaetzchen, &spoolPlugin)
 
+		// Meson
 		ticker := "gor"
 		pluginConf = make(map[string]interface{})
 		pluginConf["f"] = s.baseDir + "/currency.toml"
