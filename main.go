@@ -138,17 +138,30 @@ func (s *katzenpost) genNodeConfig(isProvider bool, isVoting bool) error {
 
 		s.providerIdx++
 		cfg.Provider = new(sConfig.Provider)
-		loopCfg := new(sConfig.Kaetzchen)
-		loopCfg.Capability = "loop"
-		loopCfg.Endpoint = "+loop"
-		cfg.Provider.Kaetzchen = append(cfg.Provider.Kaetzchen, loopCfg)
+		/*
+			loopCfg := new(sConfig.Kaetzchen)
+			loopCfg.Capability = "loop"
+			loopCfg.Endpoint = "+loop"
+			cfg.Provider.Kaetzchen = append(cfg.Provider.Kaetzchen, loopCfg)
 
-		keysvrCfg := new(sConfig.Kaetzchen)
-		keysvrCfg.Capability = "keyserver"
-		keysvrCfg.Endpoint = "+keyserver"
-		cfg.Provider.Kaetzchen = append(cfg.Provider.Kaetzchen, keysvrCfg)
+			keysvrCfg := new(sConfig.Kaetzchen)
+			keysvrCfg.Capability = "keyserver"
+			keysvrCfg.Endpoint = "+keyserver"
+			cfg.Provider.Kaetzchen = append(cfg.Provider.Kaetzchen, keysvrCfg)
+		*/
 
-		// Plugin confings
+		/*
+
+		  EnableUserRegistrationHTTP = true
+		  UserRegistrationHTTPAddresses = ["134.209.46.0:36968"]
+		  AdvertiseUserRegistrationHTTPAddresses = ["http://134.209.46.0:36968"]
+		*/
+
+		cfg.Provider.EnableUserRegistrationHTTP = true
+		cfg.Provider.UserRegistrationHTTPAddresses = cfg.Server.Addresses
+		cfg.Provider.AdvertiseUserRegistrationHTTPAddresses = []string{"http://" + cfg.Server.Addresses[0]}
+
+		// Plugin configs
 		// echo server
 		pluginConf := make(map[string]interface{})
 		pluginConf["log_dir"] = s.baseDir
