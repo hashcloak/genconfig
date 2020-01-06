@@ -43,9 +43,10 @@ const (
 )
 
 type katzenpost struct {
-	baseDir   string
-	outputDir string
-	logWriter io.Writer
+	baseDir     string
+	outputDir   string
+	authAddress string
+	logWriter   io.Writer
 
 	authConfig        *aConfig.Config
 	votingAuthConfigs []*vConfig.Config
@@ -72,10 +73,9 @@ func (s *katzenpost) genNodeConfig(isProvider bool, isVoting bool) error {
 	// Server section.
 	cfg.Server = new(sConfig.Server)
 	cfg.Server.Identifier = name
-	cfg.Server.Addresses = []string{fmt.Sprintf("127.0.0.1:%d", s.lastPort)}
+	cfg.Server.Addresses = []string{fmt.Sprintf("0.0.0.0:%d", s.lastPort)}
 	cfg.Server.AltAddresses = map[string][]string{
-		"TCP":   []string{fmt.Sprintf("localhost:%d", s.lastPort)},
-		"torv2": []string{"onedaythiswillbea.onion:2323"},
+		"TCP": []string{fmt.Sprintf("localhost:%d", s.lastPort)},
 	}
 
 	cfg.Server.DataDir = s.baseDir
@@ -83,6 +83,7 @@ func (s *katzenpost) genNodeConfig(isProvider bool, isVoting bool) error {
 
 	// Debug section.
 	cfg.Debug = new(sConfig.Debug)
+	cfg.Debug.DisableRateLimit = true
 
 	// PKI section.
 	if isVoting {
@@ -115,7 +116,7 @@ func (s *katzenpost) genNodeConfig(isProvider bool, isVoting bool) error {
 	} else {
 		cfg.PKI = new(sConfig.PKI)
 		cfg.PKI.Nonvoting = new(sConfig.Nonvoting)
-		cfg.PKI.Nonvoting.Address = fmt.Sprintf("127.0.0.1:%d", basePort)
+		cfg.PKI.Nonvoting.Address = fmt.Sprintf(s.authAddress+":%d", basePort)
 		if s.authIdentity == nil {
 		}
 		idKey, err := s.authIdentity.PublicKey().MarshalText()
@@ -385,7 +386,8 @@ func main() {
 	voting := flag.Bool("v", false, "Generate voting configuration")
 	nrVoting := flag.Int("nv", nrAuthorities, "Generate voting configuration")
 	baseDir := flag.String("b", "/conf", "Path to use as baseDir option")
-	outputDir := flag.String("o", "./", "OutputDir")
+	outputDir := flag.String("o", "./output", "OutputDir")
+	authAddress := flag.String("a", "127.0.0.1", "Authority public ip address")
 	flag.Parse()
 	s := &katzenpost{
 		lastPort:   basePort + 1,
