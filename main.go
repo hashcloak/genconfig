@@ -163,10 +163,10 @@ func (s *katzenpost) genNodeConfig(isProvider bool, isVoting bool) error {
 		cfg.Provider.CBORPluginKaetzchen = append(cfg.Provider.CBORPluginKaetzchen, &echoPlugin)
 
 		// panda serever
-		pluginConf := make(map[string]interface{})
+		pluginConf = make(map[string]interface{})
 		pluginConf["log_dir"] = s.baseDir
 		pluginConf["log_level"] = cfg.Logging.Level
-		pluginConf["fileStore"] = s.baseDir
+		pluginConf["fileStore"] = s.baseDir + "/panda.storage"
 		pandaPlugin := sConfig.CBORPluginKaetzchen{
 			Disable:        false,
 			Capability:     "panda",
@@ -219,6 +219,7 @@ func (s *katzenpost) genNodeConfig(isProvider bool, isVoting bool) error {
 			LogLevel: cfg.Logging.Level,
 		}
 
+		// generate currency.toml
 		os.Mkdir(filepath.Join(s.outputDir, identifier(cfg)), 0700)
 		fileName := filepath.Join(
 			s.outputDir, identifier(cfg), "currency.toml",
