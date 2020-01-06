@@ -75,8 +75,9 @@ func (s *katzenpost) genNodeConfig(isProvider bool, isVoting bool) error {
 	cfg.Server.Identifier = name
 	cfg.Server.Addresses = []string{fmt.Sprintf("0.0.0.0:%d", s.lastPort)}
 	cfg.Server.AltAddresses = map[string][]string{
-		"TCP": []string{fmt.Sprintf("localhost:%d", s.lastPort)},
+		"tcp4": []string{fmt.Sprintf("localhost:%d", s.lastPort)},
 	}
+	cfg.Server.OnlyAdvertiseAltAddresses = true
 
 	cfg.Server.DataDir = s.baseDir
 	cfg.Server.IsProvider = isProvider
