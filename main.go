@@ -139,23 +139,16 @@ func (s *katzenpost) genNodeConfig(isProvider bool, isVoting bool) error {
 
 		s.providerIdx++
 		cfg.Provider = new(sConfig.Provider)
-		/*
-			loopCfg := new(sConfig.Kaetzchen)
-			loopCfg.Capability = "loop"
-			loopCfg.Endpoint = "+loop"
-			cfg.Provider.Kaetzchen = append(cfg.Provider.Kaetzchen, loopCfg)
+		loopCfg := new(sConfig.Kaetzchen)
+		loopCfg.Capability = "loop"
+		loopCfg.Endpoint = "+loop"
+		cfg.Provider.Kaetzchen = append(cfg.Provider.Kaetzchen, loopCfg)
 
+		/*
 			keysvrCfg := new(sConfig.Kaetzchen)
 			keysvrCfg.Capability = "keyserver"
 			keysvrCfg.Endpoint = "+keyserver"
 			cfg.Provider.Kaetzchen = append(cfg.Provider.Kaetzchen, keysvrCfg)
-		*/
-
-		/*
-
-		  EnableUserRegistrationHTTP = true
-		  UserRegistrationHTTPAddresses = ["134.209.46.0:36968"]
-		  AdvertiseUserRegistrationHTTPAddresses = ["http://134.209.46.0:36968"]
 		*/
 
 		cfg.Provider.EnableUserRegistrationHTTP = true
