@@ -409,12 +409,18 @@ func main() {
 
 	outDir, err := filepath.Abs(*outputDir)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		os.Exit(-1)
+	}
+	s.outputDir = outDir
+	s.baseDir = *baseDir
+	err = os.Mkdir(s.outputDir, 0700)
+	if err != nil && err.(*os.PathError).Err.Error() != "file exists" {
 		fmt.Fprintf(os.Stderr, "Failed to create base directory: %v\n", err)
 		os.Exit(-1)
-	} else {
-		s.outputDir = outDir
-		s.baseDir = *baseDir
 	}
+
+	s.authAddress = *authAddress
 
 	if *voting {
 		if err = s.genVotingAuthoritiesCfg(*nrVoting); err != nil {
