@@ -390,12 +390,13 @@ func main() {
 	var err error
 	nrNodes := flag.Int("n", nrNodes, "Number of mixes.")
 	nrProviders := flag.Int("p", nrProviders, "Number of providers.")
-	voting := flag.Bool("v", false, "Generate voting configuration")
-	nrVoting := flag.Int("nv", nrAuthorities, "Generate voting configuration")
-	baseDir := flag.String("b", "/conf", "Path to use as baseDir option")
-	outputDir := flag.String("o", "./output", "OutputDir")
-	authAddress := flag.String("a", "127.0.0.1", "Authority public ip address")
+	voting := flag.Bool("v", false, "Generate voting configuration.")
+	nrVoting := flag.Int("nv", nrAuthorities, "Number of voting authorities.")
+	baseDir := flag.String("b", "/conf", "Path to for DataDir in the config files.")
+	outputDir := flag.String("o", "./output", "Output path of the generate config files.")
+	authAddress := flag.String("a", "127.0.0.1", "Non-voting authority public ip address.")
 	flag.Parse()
+
 	s := &katzenpost{
 		lastPort:   basePort + 1,
 		recipients: make(map[string]*ecdh.PublicKey),
