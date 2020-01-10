@@ -42,11 +42,29 @@ const (
 	nrAuthorities = 3
 )
 
+var currencyList = []*currencyConf.Config{
+	&currencyConf.Config{
+		Ticker:  "gor",
+		ChainID: 5,
+		RPCUser: "rpcuser",
+		RPCPass: "rpcpassword",
+		RPCURL:  "https://goerli.hashcloak.com",
+	},
+	&currencyConf.Config{
+		Ticker:  "rin",
+		ChainID: 4,
+		RPCUser: "rpcuser",
+		RPCPass: "rpcpassword",
+		RPCURL:  "https://rinkeby.hashcloak.com",
+	},
+}
+
 type katzenpost struct {
 	baseDir     string
 	outputDir   string
 	authAddress string
 	logWriter   io.Writer
+	currency    int
 
 	authConfig        *aConfig.Config
 	votingAuthConfigs []*vConfig.Config
@@ -75,7 +93,7 @@ func (s *katzenpost) genNodeConfig(isProvider bool, isVoting bool) error {
 	cfg.Server.Identifier = name
 	cfg.Server.Addresses = []string{fmt.Sprintf("0.0.0.0:%d", s.lastPort)}
 	cfg.Server.AltAddresses = map[string][]string{
-		"tcp4": []string{fmt.Sprintf(s.authAddress + ":%d", s.lastPort)},
+		"tcp4": []string{fmt.Sprintf(s.authAddress+":%d", s.lastPort)},
 	}
 	cfg.Server.OnlyAdvertiseAltAddresses = true
 	cfg.Server.DataDir = s.baseDir
@@ -136,7 +154,6 @@ func (s *katzenpost) genNodeConfig(isProvider bool, isVoting bool) error {
 		cfg.Management = new(sConfig.Management)
 		cfg.Management.Enable = true
 
-		s.providerIdx++
 		cfg.Provider = new(sConfig.Provider)
 		loopCfg := new(sConfig.Kaetzchen)
 		loopCfg.Capability = "loop"
@@ -152,9 +169,9 @@ func (s *katzenpost) genNodeConfig(isProvider bool, isVoting bool) error {
 
 		cfg.Provider.EnableUserRegistrationHTTP = true
 		cfg.Provider.UserRegistrationHTTPAddresses = cfg.Server.Addresses
-    userRegistrationPort := 10000 + s.lastPort
+		userRegistrationPort := 10000 + s.lastPort
 
-    cfg.Provider.AdvertiseUserRegistrationHTTPAddresses = []string{fmt.Sprintf("http://%s:%d", s.authAddress, userRegistrationPort)}
+		cfg.Provider.AdvertiseUserRegistrationHTTPAddresses = []string{fmt.Sprintf("http://%s:%d", s.authAddress, userRegistrationPort)}
 
 		// Plugin configs
 		// echo server
@@ -203,37 +220,29 @@ func (s *katzenpost) genNodeConfig(isProvider bool, isVoting bool) error {
 		cfg.Provider.CBORPluginKaetzchen = append(cfg.Provider.CBORPluginKaetzchen, &spoolPlugin)
 
 		// Meson
-		ticker := "gor"
+		fmt.Println(s.providerIdx)
+		curConf := currencyList[s.providerIdx]
+		curConf.LogDir = s.baseDir
+		curConf.LogLevel = cfg.Logging.Level
 		pluginConf = make(map[string]interface{})
 		pluginConf["f"] = s.baseDir + "/currency.toml"
 		pluginConf["log_dir"] = s.baseDir
 		pluginConf["log_level"] = cfg.Logging.Level
 		mesonPlugin := sConfig.CBORPluginKaetzchen{
 			Disable:        false,
-			Capability:     ticker,
-			Endpoint:       "+" + ticker,
+			Capability:     curConf.Ticker,
+			Endpoint:       "+" + curConf.Ticker,
 			Command:        "/go/bin/Meson",
 			MaxConcurrency: 1,
 			Config:         pluginConf,
 		}
 		cfg.Provider.CBORPluginKaetzchen = append(cfg.Provider.CBORPluginKaetzchen, &mesonPlugin)
 
-		curConf := currencyConf.Config{
-			Ticker:   ticker,
-			ChainID:  5,
-			RPCUser:  "rpcuser",
-			RPCPass:  "rpcpassword",
-			RPCURL:   "https://goerli.hashcloak.com",
-			LogDir:   s.baseDir,
-			LogLevel: cfg.Logging.Level,
-		}
-
 		// generate currency.toml
 		os.Mkdir(filepath.Join(s.outputDir, identifier(cfg)), 0700)
 		fileName := filepath.Join(
 			s.outputDir, identifier(cfg), "currency.toml",
 		)
-		log.Printf("saveCfg of %s", fileName)
 		f, err := os.Create(fileName)
 		if err != nil {
 			return err
@@ -245,6 +254,8 @@ func (s *katzenpost) genNodeConfig(isProvider bool, isVoting bool) error {
 		if err != nil {
 			return err
 		}
+
+		s.providerIdx++
 
 	} else {
 		s.nodeIdx++
