@@ -271,7 +271,7 @@ func (s *katzenpost) genAuthConfig() error {
 
 	// Authority section.
 	cfg.Authority = new(aConfig.Authority)
-	cfg.Authority.Addresses = []string{fmt.Sprintf("127.0.0.1:%d", basePort)}
+	cfg.Authority.Addresses = []string{fmt.Sprintf("0.0.0.0:%d", basePort)}
 	cfg.Authority.DataDir = filepath.Join(s.baseDir)
 
 	// Logging section.
@@ -315,7 +315,7 @@ func (s *katzenpost) genVotingAuthoritiesCfg(numAuthorities int) error {
 		cfg.Parameters = parameters
 		cfg.Authority = &vConfig.Authority{
 			Identifier: fmt.Sprintf("authority-%v", i),
-			Addresses:  []string{fmt.Sprintf("127.0.0.1:%d", s.lastPort)},
+			Addresses:  []string{fmt.Sprintf("0.0.0.0:%d", s.lastPort)},
 			DataDir:    filepath.Join(s.baseDir, fmt.Sprintf("authority-%d", i)),
 		}
 		os.Mkdir(s.outputDir+"/"+cfg.Authority.Identifier, 0700)
