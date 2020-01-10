@@ -75,10 +75,9 @@ func (s *katzenpost) genNodeConfig(isProvider bool, isVoting bool) error {
 	cfg.Server.Identifier = name
 	cfg.Server.Addresses = []string{fmt.Sprintf("0.0.0.0:%d", s.lastPort)}
 	cfg.Server.AltAddresses = map[string][]string{
-		"tcp4": []string{fmt.Sprintf("localhost:%d", s.lastPort)},
+		"tcp4": []string{fmt.Sprintf(s.authAddress + ":%d", s.lastPort)},
 	}
 	cfg.Server.OnlyAdvertiseAltAddresses = true
-
 	cfg.Server.DataDir = s.baseDir
 	cfg.Server.IsProvider = isProvider
 
@@ -153,7 +152,9 @@ func (s *katzenpost) genNodeConfig(isProvider bool, isVoting bool) error {
 
 		cfg.Provider.EnableUserRegistrationHTTP = true
 		cfg.Provider.UserRegistrationHTTPAddresses = cfg.Server.Addresses
-		cfg.Provider.AdvertiseUserRegistrationHTTPAddresses = []string{"http://" + cfg.Server.Addresses[0]}
+    userRegistrationPort := 10000 + s.lastPort
+
+    cfg.Provider.AdvertiseUserRegistrationHTTPAddresses = []string{fmt.Sprintf("http://%s:%d", s.authAddress, userRegistrationPort)}
 
 		// Plugin configs
 		// echo server
