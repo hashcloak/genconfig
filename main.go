@@ -168,9 +168,8 @@ func (s *katzenpost) genNodeConfig(isProvider bool, isVoting bool) error {
 		*/
 
 		cfg.Provider.EnableUserRegistrationHTTP = true
-		cfg.Provider.UserRegistrationHTTPAddresses = cfg.Server.Addresses
 		userRegistrationPort := 10000 + s.lastPort
-
+		cfg.Provider.UserRegistrationHTTPAddresses = []string{fmt.Sprintf("0.0.0.0:%d", userRegistrationPort)}
 		cfg.Provider.AdvertiseUserRegistrationHTTPAddresses = []string{fmt.Sprintf("http://%s:%d", s.authAddress, userRegistrationPort)}
 
 		// Plugin configs
