@@ -266,6 +266,15 @@ func (s *katzenpost) genMixNodeConfig(name string) (cfg *sConfig.Config, err err
 	// Debug section.
 	cfg.Debug = new(sConfig.Debug)
 	cfg.Debug.DisableRateLimit = true
+	cfg.Debug.SendDecoyTraffic = true
+
+	// This needs to be 1 because during runtime the default
+	// value of this is the number of cores of the computer.
+	// In docker this number is 1 but if one runs this script
+	// on a personal computer the value becomes 8, which doesn't
+	// work inside of docker take a look at:
+	// https://github.com/katzenpost/server/blob/master/config/config.go#L261
+	cfg.Debug.NumSphinxWorkers = 1
 
 	// Logging section.
 	cfg.Logging = new(sConfig.Logging)
