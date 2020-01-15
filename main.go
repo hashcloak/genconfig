@@ -86,43 +86,137 @@ type katzenpost struct {
 	nameOfSingleNode string
 }
 
-func (s *katzenpost) genNodeConfig(isProvider bool, isVoting bool) error {
-	const serverLogFile = "katzenpost.log"
+func (s *katzenpost) genProviderConfig() (cfg *sConfig.Config, err error) {
+	cfg, err = s.genMixNodeConfig()
 
-	name := fmt.Sprintf("node-%d", s.nodeIdx)
-	if isProvider {
-		name = fmt.Sprintf("provider-%d", s.providerIdx)
-	}
+	name := fmt.Sprintf("provider-%d", s.providerIdx)
 	os.Mkdir(filepath.Join(s.outputDir, name), 0700)
-	cfg := new(sConfig.Config)
 
-	// Server section.
-	cfg.Server = new(sConfig.Server)
 	cfg.Server.Identifier = name
-	cfg.Server.Addresses = []string{fmt.Sprintf("0.0.0.0:%d", s.lastPort)}
-	cfg.Server.AltAddresses = map[string][]string{
-		"tcp4": []string{fmt.Sprintf(s.authAddress+":%d", s.lastPort)},
+	cfg.Server.IsProvider = true
+
+	cfg.Management = new(sConfig.Management)
+	cfg.Management.Enable = true
+
+	cfg.Provider = new(sConfig.Provider)
+	loopCfg := new(sConfig.Kaetzchen)
+	loopCfg.Capability = "loop"
+	loopCfg.Endpoint = "+loop"
+	cfg.Provider.Kaetzchen = append(cfg.Provider.Kaetzchen, loopCfg)
+
+	/*
+		keysvrCfg := new(sConfig.Kaetzchen)
+		keysvrCfg.Capability = "keyserver"
+		keysvrCfg.Endpoint = "+keyserver"
+		cfg.Provider.Kaetzchen = append(cfg.Provider.Kaetzchen, keysvrCfg)
+	*/
+
+	cfg.Provider.EnableUserRegistrationHTTP = true
+	userRegistrationPort := 10000 + s.lastPort
+	cfg.Provider.UserRegistrationHTTPAddresses = []string{fmt.Sprintf("0.0.0.0:%d", userRegistrationPort)}
+	cfg.Provider.AdvertiseUserRegistrationHTTPAddresses = []string{fmt.Sprintf("http://%s:%d", s.authAddress, userRegistrationPort)}
+
+	// Plugin configs
+	// echo server
+	pluginConf := make(map[string]interface{})
+	pluginConf["log_dir"] = s.baseDir
+	pluginConf["log_level"] = cfg.Logging.Level
+	echoPlugin := sConfig.CBORPluginKaetzchen{
+		Disable:        false,
+		Capability:     "echo",
+		Endpoint:       "+echo",
+		Command:        "/go/bin/echo_server",
+		MaxConcurrency: 1,
+		Config:         pluginConf,
 	}
-	cfg.Server.OnlyAdvertiseAltAddresses = true
-	cfg.Server.DataDir = s.baseDir
-	cfg.Server.IsProvider = isProvider
+	cfg.Provider.CBORPluginKaetzchen = append(cfg.Provider.CBORPluginKaetzchen, &echoPlugin)
 
-	// Debug section.
-	cfg.Debug = new(sConfig.Debug)
-	cfg.Debug.DisableRateLimit = true
+	// panda serever
+	pluginConf = make(map[string]interface{})
+	pluginConf["log_dir"] = s.baseDir
+	pluginConf["log_level"] = cfg.Logging.Level
+	pluginConf["fileStore"] = s.baseDir + "/panda.storage"
+	pandaPlugin := sConfig.CBORPluginKaetzchen{
+		Disable:        false,
+		Capability:     "panda",
+		Endpoint:       "+panda",
+		Command:        "/go/bin/panda_server",
+		MaxConcurrency: 1,
+		Config:         pluginConf,
+	}
+	cfg.Provider.CBORPluginKaetzchen = append(cfg.Provider.CBORPluginKaetzchen, &pandaPlugin)
 
-	// PKI section.
-	if isVoting {
+	// memspool
+	pluginConf = make(map[string]interface{})
+	// leaving this one out until it can be proven that it won't crash the spool plugin
+	//pluginconf["log_dir"] = s.basedir
+	pluginConf["log_dir"] = s.baseDir
+	pluginConf["data_store"] = s.baseDir + "/memspool.storage"
+	spoolPlugin := sConfig.CBORPluginKaetzchen{
+		Disable:        false,
+		Capability:     "spool",
+		Endpoint:       "+spool",
+		Command:        "/go/bin/memspool",
+		MaxConcurrency: 1,
+		Config:         pluginConf,
+	}
+	cfg.Provider.CBORPluginKaetzchen = append(cfg.Provider.CBORPluginKaetzchen, &spoolPlugin)
+
+	// Meson
+	fmt.Println(s.providerIdx)
+	curConf := currencyList[s.providerIdx]
+	curConf.LogDir = s.baseDir
+	curConf.LogLevel = cfg.Logging.Level
+	pluginConf = make(map[string]interface{})
+	pluginConf["f"] = s.baseDir + "/currency.toml"
+	pluginConf["log_dir"] = s.baseDir
+	pluginConf["log_level"] = cfg.Logging.Level
+	mesonPlugin := sConfig.CBORPluginKaetzchen{
+		Disable:        false,
+		Capability:     curConf.Ticker,
+		Endpoint:       "+" + curConf.Ticker,
+		Command:        "/go/bin/Meson",
+		MaxConcurrency: 1,
+		Config:         pluginConf,
+	}
+	cfg.Provider.CBORPluginKaetzchen = append(cfg.Provider.CBORPluginKaetzchen, &mesonPlugin)
+
+	// generate currency.toml
+	os.Mkdir(filepath.Join(s.outputDir, identifier(cfg)), 0700)
+	fileName := filepath.Join(
+		s.outputDir, identifier(cfg), "currency.toml",
+	)
+	f, err := os.Create(fileName)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	// Serialize the descriptor.
+	enc := toml.NewEncoder(f)
+	err = enc.Encode(curConf)
+	if err != nil {
+		return nil, err
+	}
+
+	return cfg, cfg.FixupAndValidate()
+}
+
+func (s *katzenpost) genMixNodeConfig() (cfg *sConfig.Config, err error) {
+	name := fmt.Sprintf("node-%d", s.nodeIdx)
+	os.Mkdir(filepath.Join(s.outputDir, name), 0700)
+	cfg = new(sConfig.Config)
+
+	if s.voting {
 		peers := []*sConfig.Peer{}
 		for _, peer := range s.votingAuthConfigs {
 			idKey, err := s.apk(peer).MarshalText()
 			if err != nil {
-				return err
+				return nil, err
 			}
 
 			linkKey, err := s.alk(peer).MarshalText()
 			if err != nil {
-				return err
+				return nil, err
 			}
 			p := &sConfig.Peer{
 				Addresses:         peer.Authority.Addresses,
@@ -147,126 +241,52 @@ func (s *katzenpost) genNodeConfig(isProvider bool, isVoting bool) error {
 		}
 		idKey, err := s.authIdentity.PublicKey().MarshalText()
 		if err != nil {
-			return err
+			return nil, err
 		}
 		cfg.PKI.Nonvoting.PublicKey = string(idKey)
 	}
+	// Server section.
+	cfg.Server = new(sConfig.Server)
+	cfg.Server.Identifier = name
+	cfg.Server.Addresses = []string{fmt.Sprintf("0.0.0.0:%d", s.lastPort)}
+	cfg.Server.AltAddresses = map[string][]string{
+		"tcp4": []string{fmt.Sprintf(s.authAddress+":%d", s.lastPort)},
+	}
+	cfg.Server.OnlyAdvertiseAltAddresses = true
+	cfg.Server.DataDir = s.baseDir
+	cfg.Server.IsProvider = false
+
+	// Debug section.
+	cfg.Debug = new(sConfig.Debug)
+	cfg.Debug.DisableRateLimit = true
 
 	// Logging section.
 	cfg.Logging = new(sConfig.Logging)
-	cfg.Logging.File = serverLogFile
+	cfg.Logging.File = "katzenpost.log"
 	cfg.Logging.Level = "DEBUG"
 
+	return cfg, cfg.FixupAndValidate()
+}
+
+func (s *katzenpost) genNodeConfig(isProvider bool, isVoting bool) error {
+
+	var err error
+	var cfg *sConfig.Config
+
 	if isProvider {
-		// Enable the thwack interface.
-		cfg.Management = new(sConfig.Management)
-		cfg.Management.Enable = true
-
-		cfg.Provider = new(sConfig.Provider)
-		loopCfg := new(sConfig.Kaetzchen)
-		loopCfg.Capability = "loop"
-		loopCfg.Endpoint = "+loop"
-		cfg.Provider.Kaetzchen = append(cfg.Provider.Kaetzchen, loopCfg)
-
-		/*
-			keysvrCfg := new(sConfig.Kaetzchen)
-			keysvrCfg.Capability = "keyserver"
-			keysvrCfg.Endpoint = "+keyserver"
-			cfg.Provider.Kaetzchen = append(cfg.Provider.Kaetzchen, keysvrCfg)
-		*/
-
-		cfg.Provider.EnableUserRegistrationHTTP = true
-		userRegistrationPort := 10000 + s.lastPort
-		cfg.Provider.UserRegistrationHTTPAddresses = []string{fmt.Sprintf("0.0.0.0:%d", userRegistrationPort)}
-		cfg.Provider.AdvertiseUserRegistrationHTTPAddresses = []string{fmt.Sprintf("http://%s:%d", s.authAddress, userRegistrationPort)}
-
-		// Plugin configs
-		// echo server
-		pluginConf := make(map[string]interface{})
-		pluginConf["log_dir"] = s.baseDir
-		pluginConf["log_level"] = cfg.Logging.Level
-		echoPlugin := sConfig.CBORPluginKaetzchen{
-			Disable:        false,
-			Capability:     "echo",
-			Endpoint:       "+echo",
-			Command:        "/go/bin/echo_server",
-			MaxConcurrency: 1,
-			Config:         pluginConf,
-		}
-		cfg.Provider.CBORPluginKaetzchen = append(cfg.Provider.CBORPluginKaetzchen, &echoPlugin)
-
-		// panda serever
-		pluginConf = make(map[string]interface{})
-		pluginConf["log_dir"] = s.baseDir
-		pluginConf["log_level"] = cfg.Logging.Level
-		pluginConf["fileStore"] = s.baseDir + "/panda.storage"
-		pandaPlugin := sConfig.CBORPluginKaetzchen{
-			Disable:        false,
-			Capability:     "panda",
-			Endpoint:       "+panda",
-			Command:        "/go/bin/panda_server",
-			MaxConcurrency: 1,
-			Config:         pluginConf,
-		}
-		cfg.Provider.CBORPluginKaetzchen = append(cfg.Provider.CBORPluginKaetzchen, &pandaPlugin)
-
-		// memspool
-		pluginConf = make(map[string]interface{})
-		// leaving this one out until it can be proven that it won't crash the spool plugin
-		//pluginconf["log_dir"] = s.basedir
-		pluginConf["log_dir"] = s.baseDir
-		pluginConf["data_store"] = s.baseDir + "/memspool.storage"
-		spoolPlugin := sConfig.CBORPluginKaetzchen{
-			Disable:        false,
-			Capability:     "spool",
-			Endpoint:       "+spool",
-			Command:        "/go/bin/memspool",
-			MaxConcurrency: 1,
-			Config:         pluginConf,
-		}
-		cfg.Provider.CBORPluginKaetzchen = append(cfg.Provider.CBORPluginKaetzchen, &spoolPlugin)
-
-		// Meson
-		fmt.Println(s.providerIdx)
-		curConf := currencyList[s.providerIdx]
-		curConf.LogDir = s.baseDir
-		curConf.LogLevel = cfg.Logging.Level
-		pluginConf = make(map[string]interface{})
-		pluginConf["f"] = s.baseDir + "/currency.toml"
-		pluginConf["log_dir"] = s.baseDir
-		pluginConf["log_level"] = cfg.Logging.Level
-		mesonPlugin := sConfig.CBORPluginKaetzchen{
-			Disable:        false,
-			Capability:     curConf.Ticker,
-			Endpoint:       "+" + curConf.Ticker,
-			Command:        "/go/bin/Meson",
-			MaxConcurrency: 1,
-			Config:         pluginConf,
-		}
-		cfg.Provider.CBORPluginKaetzchen = append(cfg.Provider.CBORPluginKaetzchen, &mesonPlugin)
-
-		// generate currency.toml
-		os.Mkdir(filepath.Join(s.outputDir, identifier(cfg)), 0700)
-		fileName := filepath.Join(
-			s.outputDir, identifier(cfg), "currency.toml",
-		)
-		f, err := os.Create(fileName)
+		cfg, err = s.genProviderConfig()
 		if err != nil {
 			return err
 		}
-		defer f.Close()
-		// Serialize the descriptor.
-		enc := toml.NewEncoder(f)
-		err = enc.Encode(curConf)
-		if err != nil {
-			return err
-		}
-
 		s.providerIdx++
-
 	} else {
+		cfg, err = s.genMixNodeConfig()
+		if err != nil {
+			return err
+		}
 		s.nodeIdx++
 	}
+
 	s.nodeConfigs = append(s.nodeConfigs, cfg)
 	s.lastPort++
 	return cfg.FixupAndValidate()
