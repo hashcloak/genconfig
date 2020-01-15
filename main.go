@@ -163,7 +163,12 @@ func (s *katzenpost) genProviderConfig(name string) (cfg *sConfig.Config, err er
 	cfg.Provider.CBORPluginKaetzchen = append(cfg.Provider.CBORPluginKaetzchen, &spoolPlugin)
 
 	// Meson
-	curConf := currencyList[s.providerIdx]
+	curConf := currencyList[s.currency]
+	s.currency++
+	if s.currency >= len(currencyList) {
+		s.currency = 0
+	}
+
 	curConf.LogDir = s.baseDir
 	curConf.LogLevel = cfg.Logging.Level
 	pluginConf = make(map[string]interface{})
