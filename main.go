@@ -639,7 +639,7 @@ func saveCfg(outputDir string, cfg interface{}) error {
 // links beteween voting authorities
 func (s *katzenpost) apk(a *vConfig.Config) *eddsa.PublicKey {
 	priv := filepath.Join(s.outputDir, a.Authority.Identifier, "identity.private.pem")
-	public := filepath.Join(s.outputDir, a.Authority.Identifier, "identity.private.pem")
+	public := filepath.Join(s.outputDir, a.Authority.Identifier, "identity.public.pem")
 	idKey, err := eddsa.Load(priv, public, rand.Reader)
 	if err != nil {
 		panic(err)
