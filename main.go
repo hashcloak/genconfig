@@ -1,3 +1,5 @@
+// genconfig.go - Meson config generation.
+// Copyright (C) 2020  Hashcloak.
 // genconfig.go - Katzenpost self contained test network.
 // Copyright (C) 2017  Yawning Angel, David Stainton.
 //
