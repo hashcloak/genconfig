@@ -209,8 +209,7 @@ func (s *katzenpost) genMixNodeConfig(name string) (cfg *sConfig.Config, err err
 
 	priv := filepath.Join(s.outputDir, name, "identity.private.pem")
 	public := filepath.Join(s.outputDir, name, "identity.public.pem")
-	idKey, err := eddsa.Load(priv, public, rand.Reader)
-	s.authIdentity = idKey
+	_, err = eddsa.Load(priv, public, rand.Reader)
 	if err != nil {
 		return nil, err
 	}
@@ -272,12 +271,11 @@ func (s *katzenpost) genMixNodeConfig(name string) (cfg *sConfig.Config, err err
 	cfg.Debug = new(sConfig.Debug)
 	cfg.Debug.DisableRateLimit = true
 	cfg.Debug.SendDecoyTraffic = true
-
 	// This needs to be 1 because during runtime the default
 	// value of this is the number of cores of the computer.
 	// In docker this number is 1 but if one runs this script
-	// on a personal computer the value becomes 8, which doesn't
-	// work inside of docker take a look at:
+	// on a personal computer the value becomes much more than
+	// what docker is capable of handling. Take a look at:
 	// https://github.com/katzenpost/server/blob/master/config/config.go#L261
 	cfg.Debug.NumSphinxWorkers = 1
 
@@ -347,6 +345,7 @@ func (s *katzenpost) genAuthConfig() error {
 	public := filepath.Join(s.outputDir, name, "identity.public.pem")
 	idKey, err := eddsa.Load(priv, public, rand.Reader)
 	s.authIdentity = idKey
+	s.authPubIdentity = idKey.PublicKey().String()
 	if err != nil {
 		return err
 	}
