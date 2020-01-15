@@ -69,6 +69,7 @@ type katzenpost struct {
 	authConfig        *aConfig.Config
 	votingAuthConfigs []*vConfig.Config
 	authIdentity      *eddsa.PrivateKey
+	authPubIdentity   string
 
 	nodeConfigs []*sConfig.Config
 	lastPort    uint16
@@ -86,11 +87,8 @@ type katzenpost struct {
 	nameOfSingleNode string
 }
 
-func (s *katzenpost) genProviderConfig() (cfg *sConfig.Config, err error) {
-	cfg, err = s.genMixNodeConfig()
-
-	name := fmt.Sprintf("provider-%d", s.providerIdx)
-	os.Mkdir(filepath.Join(s.outputDir, name), 0700)
+func (s *katzenpost) genProviderConfig(name string) (cfg *sConfig.Config, err error) {
+	cfg, err = s.genMixNodeConfig(name)
 
 	cfg.Server.Identifier = name
 	cfg.Server.IsProvider = true
@@ -114,7 +112,7 @@ func (s *katzenpost) genProviderConfig() (cfg *sConfig.Config, err error) {
 	cfg.Provider.EnableUserRegistrationHTTP = true
 	userRegistrationPort := 10000 + s.lastPort
 	cfg.Provider.UserRegistrationHTTPAddresses = []string{fmt.Sprintf("0.0.0.0:%d", userRegistrationPort)}
-	cfg.Provider.AdvertiseUserRegistrationHTTPAddresses = []string{fmt.Sprintf("http://%s:%d", s.authAddress, userRegistrationPort)}
+	cfg.Provider.AdvertiseUserRegistrationHTTPAddresses = []string{fmt.Sprintf("http://%s:%d", s.publicIPAddress, userRegistrationPort)}
 
 	// Plugin configs
 	// echo server
@@ -163,7 +161,6 @@ func (s *katzenpost) genProviderConfig() (cfg *sConfig.Config, err error) {
 	cfg.Provider.CBORPluginKaetzchen = append(cfg.Provider.CBORPluginKaetzchen, &spoolPlugin)
 
 	// Meson
-	fmt.Println(s.providerIdx)
 	curConf := currencyList[s.providerIdx]
 	curConf.LogDir = s.baseDir
 	curConf.LogLevel = cfg.Logging.Level
@@ -201,9 +198,7 @@ func (s *katzenpost) genProviderConfig() (cfg *sConfig.Config, err error) {
 	return cfg, cfg.FixupAndValidate()
 }
 
-func (s *katzenpost) genMixNodeConfig() (cfg *sConfig.Config, err error) {
-	name := fmt.Sprintf("node-%d", s.nodeIdx)
-	os.Mkdir(filepath.Join(s.outputDir, name), 0700)
+func (s *katzenpost) genMixNodeConfig(name string) (cfg *sConfig.Config, err error) {
 	cfg = new(sConfig.Config)
 
 	if s.voting {
@@ -237,11 +232,12 @@ func (s *katzenpost) genMixNodeConfig() (cfg *sConfig.Config, err error) {
 		cfg.PKI = new(sConfig.PKI)
 		cfg.PKI.Nonvoting = new(sConfig.Nonvoting)
 		cfg.PKI.Nonvoting.Address = fmt.Sprintf(s.authAddress+":%d", basePort)
-		if s.authIdentity == nil {
-		}
-		idKey, err := s.authIdentity.PublicKey().MarshalText()
-		if err != nil {
-			return nil, err
+		idKey := []byte(s.authPubIdentity)
+		if s.authIdentity != nil {
+			idKey, err = s.authIdentity.PublicKey().MarshalText()
+			if err != nil {
+				return nil, err
+			}
 		}
 		cfg.PKI.Nonvoting.PublicKey = string(idKey)
 	}
@@ -250,7 +246,7 @@ func (s *katzenpost) genMixNodeConfig() (cfg *sConfig.Config, err error) {
 	cfg.Server.Identifier = name
 	cfg.Server.Addresses = []string{fmt.Sprintf("0.0.0.0:%d", s.lastPort)}
 	cfg.Server.AltAddresses = map[string][]string{
-		"tcp4": []string{fmt.Sprintf(s.authAddress+":%d", s.lastPort)},
+		"tcp4": []string{fmt.Sprintf(s.publicIPAddress+":%d", s.lastPort)},
 	}
 	cfg.Server.OnlyAdvertiseAltAddresses = true
 	cfg.Server.DataDir = s.baseDir
@@ -272,15 +268,28 @@ func (s *katzenpost) genNodeConfig(isProvider bool, isVoting bool) error {
 
 	var err error
 	var cfg *sConfig.Config
+	var name string
 
 	if isProvider {
-		cfg, err = s.genProviderConfig()
+		name = fmt.Sprintf("provider-%d", s.providerIdx)
+	} else {
+		name = fmt.Sprintf("node-%d", s.nodeIdx)
+	}
+
+	if s.nameOfSingleNode != "" {
+		name = s.nameOfSingleNode
+	}
+
+	os.Mkdir(filepath.Join(s.outputDir, name), 0700)
+
+	if isProvider {
+		cfg, err = s.genProviderConfig(name)
 		if err != nil {
 			return err
 		}
 		s.providerIdx++
 	} else {
-		cfg, err = s.genMixNodeConfig()
+		cfg, err = s.genMixNodeConfig(name)
 		if err != nil {
 			return err
 		}
@@ -289,7 +298,7 @@ func (s *katzenpost) genNodeConfig(isProvider bool, isVoting bool) error {
 
 	s.nodeConfigs = append(s.nodeConfigs, cfg)
 	s.lastPort++
-	return cfg.FixupAndValidate()
+	return nil
 }
 
 func (s *katzenpost) genAuthConfig() error {
@@ -492,8 +501,9 @@ func main() {
 	authAddress := flag.String("a", "127.0.0.1", "Non-voting authority public ip address.")
 	mixNodeConfig := flag.Bool("node", false, "Only generate a mix node config.")
 	providerNodeConfig := flag.Bool("provider", false, "Only generate a provider node config.")
-	publicIPAddress := flag.String("pub-ip", "", "The public ipv4 or ipv6 address of the single node.")
+	publicIPAddress := flag.String("ipv4", "", "The public ipv4 address of the single node.")
 	name := flag.String("name", "", "The name of the node.")
+	authPubIdentity := flag.String("authID", "", "Authority public ID.")
 	flag.Parse()
 	s := &katzenpost{
 		lastPort:   basePort + 1,
@@ -509,7 +519,7 @@ func main() {
 	s.baseDir = *baseDir
 	err = os.Mkdir(s.outputDir, 0700)
 	if err != nil && err.(*os.PathError).Err.Error() != "file exists" {
-		fmt.Fprintf(os.Stderr, "Failed to create base directory: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Failed to create output directory: %v\n", err)
 		os.Exit(-1)
 	}
 
@@ -522,11 +532,39 @@ func main() {
 	s.onlyProviderNode = *providerNodeConfig
 	s.publicIPAddress = *publicIPAddress
 	s.nameOfSingleNode = *name
+	s.authPubIdentity = *authPubIdentity
 
-	if *voting {
-		s.generateVotingMixnetConfigs()
+	if s.onlyMixNode || s.onlyProviderNode {
+		if s.onlyMixNode && s.onlyProviderNode {
+			fmt.Fprintf(os.Stderr, "Please specify one of either -node or -provider config")
+			os.Exit(-1)
+		}
+		if s.nameOfSingleNode == "" {
+			fmt.Fprintf(os.Stderr, "Name not provided to provide a name with the -name flag")
+			os.Exit(-1)
+		}
+		if s.authPubIdentity == "" {
+			fmt.Fprintf(os.Stderr, "Need to provide an authority identity")
+			os.Exit(-1)
+		}
+		if s.publicIPAddress == "" {
+			fmt.Fprintf(os.Stderr, "Ip address not provided to provide a name with the -name flag")
+			os.Exit(-1)
+		}
+		err = s.genNodeConfig(s.onlyProviderNode, *voting)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			os.Exit(-1)
+		}
 	} else {
-		s.generateNonVotingMixnetConfigs()
+		if s.publicIPAddress == "" {
+			s.publicIPAddress = s.authAddress
+		}
+		if *voting {
+			s.generateVotingMixnetConfigs()
+		} else {
+			s.generateNonVotingMixnetConfigs()
+		}
 	}
 
 	for _, v := range s.nodeConfigs {
