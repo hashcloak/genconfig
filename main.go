@@ -75,7 +75,15 @@ type katzenpost struct {
 	nodeIdx     int
 	providerIdx int
 
-	recipients map[string]*ecdh.PublicKey
+	recipients       map[string]*ecdh.PublicKey
+	voting           bool
+	nrProviders      int
+	nrNodes          int
+	nrVoting         int
+	onlyMixNode      bool
+	onlyProviderNode bool
+	publicIPAddress  string
+	nameOfSingleNode string
 }
 
 func (s *katzenpost) genNodeConfig(isProvider bool, isVoting bool) error {
@@ -397,6 +405,62 @@ func (s *katzenpost) generateVotingWhitelist() ([]*vConfig.Node, []*vConfig.Node
 	return providers, mixes, nil
 }
 
+func (s *katzenpost) generateNonVotingMixnetConfigs() {
+	if err := s.genAuthConfig(); err != nil {
+		log.Fatalf("Failed to generate authority config: %v", err)
+	}
+
+	s.generateNodesOfMixnet()
+	// The node lists.
+	if providers, mixes, err := s.generateWhitelist(); err == nil {
+		s.authConfig.Mixes = mixes
+		s.authConfig.Providers = providers
+	} else {
+		log.Fatalf("Failed to generateWhitelist with %s", err)
+	}
+
+	if err := saveCfg(s.outputDir, s.authConfig); err != nil {
+		log.Fatalf("Failed to saveCfg of authority with %s", err)
+	}
+}
+
+func (s *katzenpost) generateVotingMixnetConfigs() {
+	if err := s.genVotingAuthoritiesCfg(s.nrVoting); err != nil {
+		log.Fatalf("getVotingAuthoritiesCfg failed: %s", err)
+	}
+
+	s.generateNodesOfMixnet()
+	providerWhitelist, mixWhitelist, err := s.generateVotingWhitelist()
+	if err != nil {
+		panic(err)
+	}
+	for _, aCfg := range s.votingAuthConfigs {
+		aCfg.Mixes = mixWhitelist
+		aCfg.Providers = providerWhitelist
+	}
+	for _, aCfg := range s.votingAuthConfigs {
+		if err := saveCfg(s.outputDir, aCfg); err != nil {
+			log.Fatalf("Failed to saveCfg of authority with %s", err)
+		}
+	}
+}
+
+func (s *katzenpost) generateNodesOfMixnet() {
+	// Generate the provider configs.
+	for i := 0; i < s.nrProviders; i++ {
+		if err := s.genNodeConfig(true, s.voting); err != nil {
+			log.Fatalf("Failed to generate provider config: %v", err)
+		}
+	}
+
+	// Generate the node configs.
+	for i := 0; i < s.nrNodes; i++ {
+		if err := s.genNodeConfig(false, s.voting); err != nil {
+			log.Fatalf("Failed to generate node config: %v", err)
+		}
+	}
+}
+
 func main() {
 	var err error
 	nrNodes := flag.Int("n", nrNodes, "Number of mixes.")
@@ -406,8 +470,11 @@ func main() {
 	baseDir := flag.String("b", "/conf", "Path to for DataDir in the config files.")
 	outputDir := flag.String("o", "./output", "Output path of the generate config files.")
 	authAddress := flag.String("a", "127.0.0.1", "Non-voting authority public ip address.")
+	mixNodeConfig := flag.Bool("node", false, "Only generate a mix node config.")
+	providerNodeConfig := flag.Bool("provider", false, "Only generate a provider node config.")
+	publicIPAddress := flag.String("pub-ip", "", "The public ipv4 or ipv6 address of the single node.")
+	name := flag.String("name", "", "The name of the node.")
 	flag.Parse()
-
 	s := &katzenpost{
 		lastPort:   basePort + 1,
 		recipients: make(map[string]*ecdh.PublicKey),
@@ -427,57 +494,19 @@ func main() {
 	}
 
 	s.authAddress = *authAddress
+	s.voting = *voting
+	s.nrProviders = *nrProviders
+	s.nrNodes = *nrNodes
+	s.nrVoting = *nrVoting
+	s.onlyMixNode = *mixNodeConfig
+	s.onlyProviderNode = *providerNodeConfig
+	s.publicIPAddress = *publicIPAddress
+	s.nameOfSingleNode = *name
 
 	if *voting {
-		if err = s.genVotingAuthoritiesCfg(*nrVoting); err != nil {
-			log.Fatalf("getVotingAuthoritiesCfg failed: %s", err)
-		}
+		s.generateVotingMixnetConfigs()
 	} else {
-		if err = s.genAuthConfig(); err != nil {
-			log.Fatalf("Failed to generate authority config: %v", err)
-		}
-	}
-
-	// Generate the provider configs.
-	for i := 0; i < *nrProviders; i++ {
-		if err = s.genNodeConfig(true, *voting); err != nil {
-			log.Fatalf("Failed to generate provider config: %v", err)
-		}
-	}
-
-	// Generate the node configs.
-	for i := 0; i < *nrNodes; i++ {
-		if err = s.genNodeConfig(false, *voting); err != nil {
-			log.Fatalf("Failed to generate node config: %v", err)
-		}
-	}
-	// Generate the authority config
-	if *voting {
-		providerWhitelist, mixWhitelist, err := s.generateVotingWhitelist()
-		if err != nil {
-			panic(err)
-		}
-		for _, aCfg := range s.votingAuthConfigs {
-			aCfg.Mixes = mixWhitelist
-			aCfg.Providers = providerWhitelist
-		}
-		for _, aCfg := range s.votingAuthConfigs {
-			if err := saveCfg(outDir, aCfg); err != nil {
-				log.Fatalf("Failed to saveCfg of authority with %s", err)
-			}
-		}
-	} else {
-		// The node lists.
-		if providers, mixes, err := s.generateWhitelist(); err == nil {
-			s.authConfig.Mixes = mixes
-			s.authConfig.Providers = providers
-		} else {
-			log.Fatalf("Failed to generateWhitelist with %s", err)
-		}
-
-		if err := saveCfg(outDir, s.authConfig); err != nil {
-			log.Fatalf("Failed to saveCfg of authority with %s", err)
-		}
+		s.generateNonVotingMixnetConfigs()
 	}
 
 	for _, v := range s.nodeConfigs {
