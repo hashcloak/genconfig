@@ -201,6 +201,15 @@ func (s *katzenpost) genProviderConfig(name string) (cfg *sConfig.Config, err er
 }
 
 func (s *katzenpost) genMixNodeConfig(name string) (cfg *sConfig.Config, err error) {
+
+	priv := filepath.Join(s.outputDir, name, "identity.private.pem")
+	public := filepath.Join(s.outputDir, name, "identity.public.pem")
+	idKey, err := eddsa.Load(priv, public, rand.Reader)
+	s.authIdentity = idKey
+	if err != nil {
+		return nil, err
+	}
+
 	cfg = new(sConfig.Config)
 
 	if s.voting {
