@@ -329,8 +329,8 @@ func (s *katzenpost) genAuthConfig() error {
 	name := "nonvoting"
 	os.Mkdir(filepath.Join(s.outputDir, name), 0700)
 	// Generate keys
-	priv := filepath.Join(filepath.Join(s.outputDir, name), "identity.private.pem")
-	public := filepath.Join(filepath.Join(s.outputDir, name), "identity.public.pem")
+	priv := filepath.Join(s.outputDir, name, "identity.private.pem")
+	public := filepath.Join(s.outputDir, name, "identity.public.pem")
 	idKey, err := eddsa.Load(priv, public, rand.Reader)
 	s.authIdentity = idKey
 	if err != nil {
