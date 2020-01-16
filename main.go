@@ -279,6 +279,9 @@ func (s *katzenpost) genMixNodeConfig(name string) (cfg *sConfig.Config, err err
 	// https://github.com/katzenpost/server/blob/master/config/config.go#L261
 	cfg.Debug.NumSphinxWorkers = 1
 
+	cfg.Debug.ConnectTimeout = 120000 // 2 mins
+	cfg.Debug.HandshakeTimeout = 600000
+
 	// Logging section.
 	cfg.Logging = new(sConfig.Logging)
 	cfg.Logging.File = "katzenpost.log"
