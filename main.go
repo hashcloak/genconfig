@@ -563,19 +563,19 @@ func main() {
 
 	if s.onlyMixNode || s.onlyProviderNode {
 		if s.onlyMixNode && s.onlyProviderNode {
-			fmt.Fprintf(os.Stderr, "Please specify one of either -node or -provider config")
+			fmt.Fprintf(os.Stderr, "Please specify one of either -node or -provider config\n")
 			os.Exit(-1)
 		}
 		if s.nameOfSingleNode == "" {
-			fmt.Fprintf(os.Stderr, "Name not provided to provide a name with the -name flag")
+			fmt.Fprintf(os.Stderr, "Name not provided to provide a name with the -name flag\n")
 			os.Exit(-1)
 		}
 		if s.authPubIdentity == "" {
-			fmt.Fprintf(os.Stderr, "Need to provide an authority identity")
+			fmt.Fprintf(os.Stderr, "Need to provide an authority identity\n")
 			os.Exit(-1)
 		}
 		if s.publicIPAddress == "" {
-			fmt.Fprintf(os.Stderr, "Ip address not provided to provide a name with the -name flag")
+			fmt.Fprintf(os.Stderr, "Ip address not provided to provide a name with the -name flag\n")
 			os.Exit(-1)
 		}
 		err = s.genNodeConfig(s.onlyProviderNode, *voting)
