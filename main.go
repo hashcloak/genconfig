@@ -28,7 +28,7 @@ import (
 	"path/filepath"
 
 	"github.com/BurntSushi/toml"
-	currencyConf "github.com/hashcloak/Meson/plugin/pkg/config"
+	currencyConf "github.com/hashcloak/Meson-plugin/pkg/config"
 	aConfig "github.com/katzenpost/authority/nonvoting/server/config"
 	vConfig "github.com/katzenpost/authority/voting/server/config"
 	"github.com/katzenpost/core/crypto/ecdh"
