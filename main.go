@@ -38,10 +38,11 @@ import (
 )
 
 const (
-	basePort      = 30000
-	nrNodes       = 6
-	nrProviders   = 2
-	nrAuthorities = 3
+	basePort             = 30000
+	nrNodes              = 6
+	nrProviders          = 2
+	nrAuthorities        = 3
+	minimumNodesPerLayer = 2
 )
 
 var currencyList = []*currencyConf.Config{
@@ -359,6 +360,11 @@ func (s *katzenpost) genAuthConfig() error {
 
 	// Debug section.
 	cfg.Debug = new(aConfig.Debug)
+	cfg.Debug.MinNodesPerLayer = minimumNodesPerLayer
+	if cfg.Debug.MinNodesPerLayer > s.nrNodes {
+		return fmt.Errorf("Not enough nodes to fill up each layer")
+	}
+	cfg.Debug.Layers = s.nrNodes / cfg.Debug.MinNodesPerLayer
 	if err := cfg.FixupAndValidate(); err != nil {
 		return err
 	}
