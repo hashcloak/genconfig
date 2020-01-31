@@ -47,14 +47,18 @@ const (
 var currencyList = []*currencyConf.Config{
 	&currencyConf.Config{
 		Ticker:  "gor",
-		ChainID: 5,
 		RPCUser: "rpcuser",
 		RPCPass: "rpcpassword",
 		RPCURL:  "https://goerli.hashcloak.com",
 	},
 	&currencyConf.Config{
+		Ticker:  "tbnb",
+		RPCUser: "rpcuser",
+		RPCPass: "rpcpassword",
+		RPCURL:  "https://tbinance.hashcloak.com",
+	},
+	&currencyConf.Config{
 		Ticker:  "rin",
-		ChainID: 4,
 		RPCUser: "rpcuser",
 		RPCPass: "rpcpassword",
 		RPCURL:  "https://rinkeby.hashcloak.com",
