@@ -275,7 +275,7 @@ func (s *katzenpost) genMixNodeConfig(name string) (cfg *sConfig.Config, err err
 	// Debug section.
 	cfg.Debug = new(sConfig.Debug)
 	cfg.Debug.DisableRateLimit = true
-	cfg.Debug.SendDecoyTraffic = true
+	cfg.Debug.SendDecoyTraffic = false
 	// This needs to be 1 because during runtime the default
 	// value of this is the number of cores of the computer.
 	// In docker this number is 1 but if one runs this script
