@@ -22,7 +22,6 @@ import (
 	"bytes"
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -70,7 +69,6 @@ type katzenpost struct {
 	baseDir     string
 	outputDir   string
 	authAddress string
-	logWriter   io.Writer
 	currency    int
 
 	authConfig        *aConfig.Config
@@ -191,7 +189,7 @@ func (s *katzenpost) genProviderConfig(name string) (cfg *sConfig.Config, err er
 	cfg.Provider.CBORPluginKaetzchen = append(cfg.Provider.CBORPluginKaetzchen, &mesonPlugin)
 
 	// generate currency.toml
-	os.Mkdir(filepath.Join(s.outputDir, identifier(cfg)), 0700)
+	_ = os.Mkdir(filepath.Join(s.outputDir, identifier(cfg)), 0700)
 	fileName := filepath.Join(
 		s.outputDir, identifier(cfg), "currency.toml",
 	)
@@ -311,7 +309,7 @@ func (s *katzenpost) genNodeConfig(isProvider bool, isVoting bool) error {
 		name = s.nameOfSingleNode
 	}
 
-	os.Mkdir(filepath.Join(s.outputDir, name), 0700)
+	_ = os.Mkdir(filepath.Join(s.outputDir, name), 0700)
 
 	if isProvider {
 		cfg, err = s.genProviderConfig(name)
@@ -347,7 +345,7 @@ func (s *katzenpost) genAuthConfig() error {
 	cfg.Logging.Level = "DEBUG"
 
 	name := "nonvoting"
-	os.Mkdir(filepath.Join(s.outputDir, name), 0700)
+	_ = os.Mkdir(filepath.Join(s.outputDir, name), 0700)
 	// Generate keys
 	priv := filepath.Join(s.outputDir, name, "identity.private.pem")
 	public := filepath.Join(s.outputDir, name, "identity.public.pem")
@@ -391,7 +389,7 @@ func (s *katzenpost) genVotingAuthoritiesCfg(numAuthorities int) error {
 			Addresses:  []string{fmt.Sprintf("0.0.0.0:%d", s.lastPort)},
 			DataDir:    filepath.Join(s.baseDir, fmt.Sprintf("authority-%d", i)),
 		}
-		os.Mkdir(s.outputDir+"/"+cfg.Authority.Identifier, 0700)
+		_ = os.Mkdir(s.outputDir+"/"+cfg.Authority.Identifier, 0700)
 		s.lastPort++
 		priv := filepath.Join(cfg.Authority.DataDir, "identity.private.pem")
 		public := filepath.Join(cfg.Authority.DataDir, "identity.public.pem")
@@ -612,20 +610,6 @@ func main() {
 	}
 }
 
-func basedir(cfg interface{}) string {
-	switch cfg.(type) {
-	case *sConfig.Config:
-		return cfg.(*sConfig.Config).Server.DataDir
-	case *aConfig.Config:
-		return cfg.(*aConfig.Config).Authority.DataDir
-	case *vConfig.Config:
-		return cfg.(*vConfig.Config).Authority.DataDir
-	default:
-		log.Fatalf("identifier() passed unexpected type")
-		return ""
-	}
-}
-
 func configName(cfg interface{}) string {
 	switch cfg.(type) {
 	case *sConfig.Config:
@@ -655,7 +639,7 @@ func identifier(cfg interface{}) string {
 }
 
 func saveCfg(outputDir string, cfg interface{}) error {
-	os.Mkdir(filepath.Join(outputDir, identifier(cfg)), 0700)
+	_ = os.Mkdir(filepath.Join(outputDir, identifier(cfg)), 0700)
 
 	fileName := filepath.Join(
 		outputDir, identifier(cfg), configName(cfg),
