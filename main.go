@@ -416,6 +416,9 @@ func (s *katzenpost) fetchKatzenmintInfo() error {
 	if err != nil {
 		return err
 	}
+	if block == nil {
+		return fmt.Errorf("couldn't find block: %d", blockHeight)
+	}
 	s.chainID = genesis.Genesis.ChainID
 	s.trustOptions = light.TrustOptions{
 		Period: 10 * time.Minute,
