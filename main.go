@@ -67,6 +67,7 @@ var currencyList = []*currencyConf.Config{
 }
 
 type katzenpost struct {
+	goBinDir    string
 	baseDir     string
 	outputDir   string
 	authAddress string
@@ -124,13 +125,13 @@ func (s *katzenpost) genProviderConfig(name string) (cfg *sConfig.Config, err er
 	// Plugin configs
 	// echo server
 	pluginConf := make(map[string]interface{})
-	pluginConf["log_dir"] = s.baseDir
+	pluginConf["log_dir"] = filepath.Join(s.baseDir, name)
 	pluginConf["log_level"] = cfg.Logging.Level
 	echoPlugin := sConfig.CBORPluginKaetzchen{
 		Disable:        false,
 		Capability:     "echo",
 		Endpoint:       "+echo",
-		Command:        "/go/bin/echo_server",
+		Command:        s.goBinDir + "/echo_server",
 		MaxConcurrency: 1,
 		Config:         pluginConf,
 	}
@@ -138,14 +139,14 @@ func (s *katzenpost) genProviderConfig(name string) (cfg *sConfig.Config, err er
 
 	// panda serever
 	pluginConf = make(map[string]interface{})
-	pluginConf["log_dir"] = s.baseDir
+	pluginConf["log_dir"] = filepath.Join(s.baseDir, name)
 	pluginConf["log_level"] = cfg.Logging.Level
-	pluginConf["fileStore"] = s.baseDir + "/panda.storage"
+	pluginConf["fileStore"] = filepath.Join(s.baseDir, name, "/panda.storage")
 	pandaPlugin := sConfig.CBORPluginKaetzchen{
 		Disable:        false,
 		Capability:     "panda",
 		Endpoint:       "+panda",
-		Command:        "/go/bin/panda_server",
+		Command:        s.goBinDir + "/panda_server",
 		MaxConcurrency: 1,
 		Config:         pluginConf,
 	}
@@ -154,14 +155,13 @@ func (s *katzenpost) genProviderConfig(name string) (cfg *sConfig.Config, err er
 	// memspool
 	pluginConf = make(map[string]interface{})
 	// leaving this one out until it can be proven that it won't crash the spool plugin
-	//pluginconf["log_dir"] = s.basedir
-	pluginConf["log_dir"] = s.baseDir
-	pluginConf["data_store"] = s.baseDir + "/memspool.storage"
+	pluginConf["log_dir"] = filepath.Join(s.baseDir, name)
+	pluginConf["data_store"] = filepath.Join(s.baseDir, name, "/memspool.storage")
 	spoolPlugin := sConfig.CBORPluginKaetzchen{
 		Disable:        false,
 		Capability:     "spool",
 		Endpoint:       "+spool",
-		Command:        "/go/bin/memspool",
+		Command:        s.goBinDir + "/memspool",
 		MaxConcurrency: 1,
 		Config:         pluginConf,
 	}
@@ -174,17 +174,17 @@ func (s *katzenpost) genProviderConfig(name string) (cfg *sConfig.Config, err er
 		s.currency = 0
 	}
 
-	curConf.LogDir = s.baseDir
+	curConf.LogDir = filepath.Join(s.baseDir, name)
 	curConf.LogLevel = cfg.Logging.Level
 	pluginConf = make(map[string]interface{})
-	pluginConf["f"] = s.baseDir + "/currency.toml"
-	pluginConf["log_dir"] = s.baseDir
+	pluginConf["f"] = filepath.Join(s.baseDir, name, "/currency.toml")
+	pluginConf["log_dir"] = filepath.Join(s.baseDir, name)
 	pluginConf["log_level"] = cfg.Logging.Level
 	mesonPlugin := sConfig.CBORPluginKaetzchen{
 		Disable:        false,
 		Capability:     curConf.Ticker,
 		Endpoint:       "+" + curConf.Ticker,
-		Command:        "/go/bin/Meson",
+		Command:        s.goBinDir + "/Meson",
 		MaxConcurrency: 1,
 		Config:         pluginConf,
 	}
@@ -254,8 +254,10 @@ func (s *katzenpost) genMixNodeConfig(name string) (cfg *sConfig.Config, err err
 		"tcp4": []string{fmt.Sprintf(s.publicIPAddress+":%d", s.lastPort)},
 	}
 	cfg.Server.OnlyAdvertiseAltAddresses = true
-	cfg.Server.DataDir = s.baseDir
+	cfg.Server.DataDir = filepath.Join(s.baseDir, name)
 	cfg.Server.IsProvider = false
+
+	_ = os.Mkdir(cfg.Server.DataDir, 0700)
 
 	// Debug section.
 	cfg.Debug = new(sConfig.Debug)
@@ -459,6 +461,7 @@ func main() {
 	nrProviders := flag.Int("p", nrProviders, "Number of providers.")
 	voting := flag.Bool("v", false, "Generate voting configuration.")
 	vRPCURL := flag.String("vrpc", "", "Voting RPC URL of katzenmint.")
+	goBinDir := flag.String("g", "/go/bin", "Path to golang bin.")
 	baseDir := flag.String("b", "/conf", "Path to for DataDir in the config files.")
 	outputDir := flag.String("o", "./output", "Output path of the generate config files.")
 	authAddress := flag.String("a", "127.0.0.1", "Non-voting authority public ip address.")
@@ -479,6 +482,7 @@ func main() {
 		os.Exit(-1)
 	}
 	s.outputDir = outDir
+	s.goBinDir = *goBinDir
 	s.baseDir = *baseDir
 	err = os.Mkdir(s.outputDir, 0700)
 	if err != nil && err.(*os.PathError).Err.Error() != "file exists" {
