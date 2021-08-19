@@ -18,3 +18,7 @@ test:
 .PHONY: build
 build:
 	go build -o genconfig main.go
+
+.PHONY: build-updateconfig
+build-updateconfig:
+	go build -o updateconfig update/main.go
