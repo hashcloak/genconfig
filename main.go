@@ -19,29 +19,29 @@
 package main
 
 import (
-	"bytes"
+	"context"
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/BurntSushi/toml"
 	currencyConf "github.com/hashcloak/Meson-plugin/pkg/config"
+	sConfig "github.com/hashcloak/Meson-server/config"
 	aConfig "github.com/katzenpost/authority/nonvoting/server/config"
-	vConfig "github.com/katzenpost/authority/voting/server/config"
 	"github.com/katzenpost/core/crypto/ecdh"
 	"github.com/katzenpost/core/crypto/eddsa"
 	"github.com/katzenpost/core/crypto/rand"
-	sConfig "github.com/katzenpost/server/config"
+	"github.com/tendermint/tendermint/light"
+	rpchttp "github.com/tendermint/tendermint/rpc/client/http"
 )
 
 const (
 	basePort             = 30000
 	nrNodes              = 6
 	nrProviders          = 2
-	nrAuthorities        = 3
 	minimumNodesPerLayer = 2
 )
 
@@ -67,16 +67,15 @@ var currencyList = []*currencyConf.Config{
 }
 
 type katzenpost struct {
+	goBinDir    string
 	baseDir     string
 	outputDir   string
 	authAddress string
-	logWriter   io.Writer
 	currency    int
 
-	authConfig        *aConfig.Config
-	votingAuthConfigs []*vConfig.Config
-	authIdentity      *eddsa.PrivateKey
-	authPubIdentity   string
+	authConfig      *aConfig.Config
+	authIdentity    *eddsa.PrivateKey
+	authPubIdentity string
 
 	nodeConfigs []*sConfig.Config
 	lastPort    uint16
@@ -87,7 +86,9 @@ type katzenpost struct {
 	voting           bool
 	nrProviders      int
 	nrNodes          int
-	nrVoting         int
+	vRPCURL          string
+	trustOptions     light.TrustOptions
+	chainID          string
 	onlyMixNode      bool
 	onlyProviderNode bool
 	publicIPAddress  string
@@ -124,13 +125,13 @@ func (s *katzenpost) genProviderConfig(name string) (cfg *sConfig.Config, err er
 	// Plugin configs
 	// echo server
 	pluginConf := make(map[string]interface{})
-	pluginConf["log_dir"] = s.baseDir
+	pluginConf["log_dir"] = filepath.Join(s.baseDir, name)
 	pluginConf["log_level"] = cfg.Logging.Level
 	echoPlugin := sConfig.CBORPluginKaetzchen{
 		Disable:        false,
 		Capability:     "echo",
 		Endpoint:       "+echo",
-		Command:        "/go/bin/echo_server",
+		Command:        s.goBinDir + "/echo_server",
 		MaxConcurrency: 1,
 		Config:         pluginConf,
 	}
@@ -138,14 +139,14 @@ func (s *katzenpost) genProviderConfig(name string) (cfg *sConfig.Config, err er
 
 	// panda serever
 	pluginConf = make(map[string]interface{})
-	pluginConf["log_dir"] = s.baseDir
+	pluginConf["log_dir"] = filepath.Join(s.baseDir, name)
 	pluginConf["log_level"] = cfg.Logging.Level
-	pluginConf["fileStore"] = s.baseDir + "/panda.storage"
+	pluginConf["fileStore"] = filepath.Join(s.baseDir, name, "/panda.storage")
 	pandaPlugin := sConfig.CBORPluginKaetzchen{
 		Disable:        false,
 		Capability:     "panda",
 		Endpoint:       "+panda",
-		Command:        "/go/bin/panda_server",
+		Command:        s.goBinDir + "/panda_server",
 		MaxConcurrency: 1,
 		Config:         pluginConf,
 	}
@@ -154,14 +155,13 @@ func (s *katzenpost) genProviderConfig(name string) (cfg *sConfig.Config, err er
 	// memspool
 	pluginConf = make(map[string]interface{})
 	// leaving this one out until it can be proven that it won't crash the spool plugin
-	//pluginconf["log_dir"] = s.basedir
-	pluginConf["log_dir"] = s.baseDir
-	pluginConf["data_store"] = s.baseDir + "/memspool.storage"
+	pluginConf["log_dir"] = filepath.Join(s.baseDir, name)
+	pluginConf["data_store"] = filepath.Join(s.baseDir, name, "/memspool.storage")
 	spoolPlugin := sConfig.CBORPluginKaetzchen{
 		Disable:        false,
 		Capability:     "spool",
 		Endpoint:       "+spool",
-		Command:        "/go/bin/memspool",
+		Command:        s.goBinDir + "/memspool",
 		MaxConcurrency: 1,
 		Config:         pluginConf,
 	}
@@ -174,24 +174,24 @@ func (s *katzenpost) genProviderConfig(name string) (cfg *sConfig.Config, err er
 		s.currency = 0
 	}
 
-	curConf.LogDir = s.baseDir
+	curConf.LogDir = filepath.Join(s.baseDir, name)
 	curConf.LogLevel = cfg.Logging.Level
 	pluginConf = make(map[string]interface{})
-	pluginConf["f"] = s.baseDir + "/currency.toml"
-	pluginConf["log_dir"] = s.baseDir
+	pluginConf["f"] = filepath.Join(s.baseDir, name, "/currency.toml")
+	pluginConf["log_dir"] = filepath.Join(s.baseDir, name)
 	pluginConf["log_level"] = cfg.Logging.Level
 	mesonPlugin := sConfig.CBORPluginKaetzchen{
 		Disable:        false,
 		Capability:     curConf.Ticker,
 		Endpoint:       "+" + curConf.Ticker,
-		Command:        "/go/bin/Meson",
+		Command:        s.goBinDir + "/Meson",
 		MaxConcurrency: 1,
 		Config:         pluginConf,
 	}
 	cfg.Provider.CBORPluginKaetzchen = append(cfg.Provider.CBORPluginKaetzchen, &mesonPlugin)
 
 	// generate currency.toml
-	os.Mkdir(filepath.Join(s.outputDir, identifier(cfg)), 0700)
+	_ = os.Mkdir(filepath.Join(s.outputDir, identifier(cfg)), 0700)
 	fileName := filepath.Join(
 		s.outputDir, identifier(cfg), "currency.toml",
 	)
@@ -222,30 +222,15 @@ func (s *katzenpost) genMixNodeConfig(name string) (cfg *sConfig.Config, err err
 	cfg = new(sConfig.Config)
 
 	if s.voting {
-		peers := []*sConfig.Peer{}
-		for _, peer := range s.votingAuthConfigs {
-			idKey, err := s.apk(peer).MarshalText()
-			if err != nil {
-				return nil, err
-			}
-
-			linkKey, err := s.alk(peer).MarshalText()
-			if err != nil {
-				return nil, err
-			}
-			p := &sConfig.Peer{
-				Addresses:         peer.Authority.Addresses,
-				IdentityPublicKey: string(idKey),
-				LinkPublicKey:     string(linkKey),
-			}
-			if len(peer.Authority.Addresses) == 0 {
-				panic("wtf")
-			}
-			peers = append(peers, p)
-		}
 		cfg.PKI = &sConfig.PKI{
 			Voting: &sConfig.Voting{
-				Peers: peers,
+				ChainID:            s.chainID,
+				TrustOptions:       s.trustOptions,
+				PrimaryAddress:     s.vRPCURL,
+				WitnessesAddresses: []string{s.vRPCURL},
+				DatabaseName:       fmt.Sprintf("%s-db", name),
+				DatabaseDir:        filepath.Join(s.outputDir, name),
+				RPCAddress:         s.vRPCURL,
 			},
 		}
 	} else {
@@ -269,8 +254,10 @@ func (s *katzenpost) genMixNodeConfig(name string) (cfg *sConfig.Config, err err
 		"tcp4": []string{fmt.Sprintf(s.publicIPAddress+":%d", s.lastPort)},
 	}
 	cfg.Server.OnlyAdvertiseAltAddresses = true
-	cfg.Server.DataDir = s.baseDir
+	cfg.Server.DataDir = filepath.Join(s.baseDir, name)
 	cfg.Server.IsProvider = false
+
+	_ = os.Mkdir(cfg.Server.DataDir, 0700)
 
 	// Debug section.
 	cfg.Debug = new(sConfig.Debug)
@@ -311,7 +298,7 @@ func (s *katzenpost) genNodeConfig(isProvider bool, isVoting bool) error {
 		name = s.nameOfSingleNode
 	}
 
-	os.Mkdir(filepath.Join(s.outputDir, name), 0700)
+	_ = os.Mkdir(filepath.Join(s.outputDir, name), 0700)
 
 	if isProvider {
 		cfg, err = s.genProviderConfig(name)
@@ -347,7 +334,7 @@ func (s *katzenpost) genAuthConfig() error {
 	cfg.Logging.Level = "DEBUG"
 
 	name := "nonvoting"
-	os.Mkdir(filepath.Join(s.outputDir, name), 0700)
+	_ = os.Mkdir(filepath.Join(s.outputDir, name), 0700)
 	// Generate keys
 	priv := filepath.Join(s.outputDir, name, "identity.private.pem")
 	public := filepath.Join(s.outputDir, name, "identity.public.pem")
@@ -372,62 +359,6 @@ func (s *katzenpost) genAuthConfig() error {
 	return nil
 }
 
-func (s *katzenpost) genVotingAuthoritiesCfg(numAuthorities int) error {
-	parameters := &vConfig.Parameters{}
-	configs := []*vConfig.Config{}
-
-	// initial generation of key material for each authority
-	peersMap := make(map[[eddsa.PublicKeySize]byte]*vConfig.AuthorityPeer)
-	for i := 0; i < numAuthorities; i++ {
-		cfg := new(vConfig.Config)
-		cfg.Logging = &vConfig.Logging{
-			Disable: false,
-			File:    "katzenpost.log",
-			Level:   "DEBUG",
-		}
-		cfg.Parameters = parameters
-		cfg.Authority = &vConfig.Authority{
-			Identifier: fmt.Sprintf("authority-%v", i),
-			Addresses:  []string{fmt.Sprintf("0.0.0.0:%d", s.lastPort)},
-			DataDir:    filepath.Join(s.baseDir, fmt.Sprintf("authority-%d", i)),
-		}
-		os.Mkdir(s.outputDir+"/"+cfg.Authority.Identifier, 0700)
-		s.lastPort++
-		priv := filepath.Join(cfg.Authority.DataDir, "identity.private.pem")
-		public := filepath.Join(cfg.Authority.DataDir, "identity.public.pem")
-		idKey, err := eddsa.Load(priv, public, rand.Reader)
-		if err != nil {
-			return err
-		}
-		cfg.Debug = &vConfig.Debug{
-			IdentityKey:      idKey,
-			Layers:           3,
-			MinNodesPerLayer: 1,
-			GenerateOnly:     false,
-		}
-		configs = append(configs, cfg)
-		authorityPeer := &vConfig.AuthorityPeer{
-			IdentityPublicKey: s.apk(cfg),
-			LinkPublicKey:     s.alk(cfg),
-			Addresses:         cfg.Authority.Addresses,
-		}
-		peersMap[s.apk(cfg).ByteArray()] = authorityPeer
-	}
-
-	// tell each authority about it's peers
-	for i := 0; i < numAuthorities; i++ {
-		peers := []*vConfig.AuthorityPeer{}
-		for id, peer := range peersMap {
-			if !bytes.Equal(id[:], s.apk(configs[i]).Bytes()) {
-				peers = append(peers, peer)
-			}
-		}
-		configs[i].Authorities = peers
-	}
-	s.votingAuthConfigs = configs
-	return nil
-}
-
 func (s *katzenpost) generateWhitelist() ([]*aConfig.Node, []*aConfig.Node, error) {
 	mixes := []*aConfig.Node{}
 	providers := []*aConfig.Node{}
@@ -449,27 +380,6 @@ func (s *katzenpost) generateWhitelist() ([]*aConfig.Node, []*aConfig.Node, erro
 	return providers, mixes, nil
 
 }
-func (s *katzenpost) generateVotingWhitelist() ([]*vConfig.Node, []*vConfig.Node, error) {
-	mixes := []*vConfig.Node{}
-	providers := []*vConfig.Node{}
-
-	for _, nodeCfg := range s.nodeConfigs {
-		if nodeCfg.Server.IsProvider {
-			provider := &vConfig.Node{
-				Identifier:  nodeCfg.Server.Identifier,
-				IdentityKey: s.spk(nodeCfg),
-			}
-			providers = append(providers, provider)
-			continue
-		}
-		mix := &vConfig.Node{
-			IdentityKey: s.spk(nodeCfg),
-		}
-		mixes = append(mixes, mix)
-	}
-
-	return providers, mixes, nil
-}
 
 func (s *katzenpost) generateNonVotingMixnetConfigs() {
 	if err := s.genAuthConfig(); err != nil {
@@ -490,25 +400,43 @@ func (s *katzenpost) generateNonVotingMixnetConfigs() {
 	}
 }
 
+func (s *katzenpost) fetchKatzenmintInfo() error {
+	c, err := rpchttp.New(s.vRPCURL, "/websocket")
+	if err != nil {
+		return err
+	}
+	info, err := c.ABCIInfo(context.Background())
+	if err != nil {
+		return err
+	}
+	genesis, err := c.Genesis(context.Background())
+	if err != nil {
+		return err
+	}
+	blockHeight := info.Response.LastBlockHeight
+	block, err := c.Block(context.Background(), &blockHeight)
+	if err != nil {
+		return err
+	}
+	if block == nil {
+		return fmt.Errorf("couldn't find block: %d", blockHeight)
+	}
+	s.chainID = genesis.Genesis.ChainID
+	s.trustOptions = light.TrustOptions{
+		Period: 10 * time.Minute,
+		Height: blockHeight,
+		Hash:   block.BlockID.Hash,
+	}
+	return nil
+}
+
 func (s *katzenpost) generateVotingMixnetConfigs() {
-	if err := s.genVotingAuthoritiesCfg(s.nrVoting); err != nil {
-		log.Fatalf("getVotingAuthoritiesCfg failed: %s", err)
+	if err := s.fetchKatzenmintInfo(); err != nil {
+		log.Fatalf("fetchKatzenmintInfo failed: %s", err)
 	}
 
 	s.generateNodesOfMixnet()
-	providerWhitelist, mixWhitelist, err := s.generateVotingWhitelist()
-	if err != nil {
-		panic(err)
-	}
-	for _, aCfg := range s.votingAuthConfigs {
-		aCfg.Mixes = mixWhitelist
-		aCfg.Providers = providerWhitelist
-	}
-	for _, aCfg := range s.votingAuthConfigs {
-		if err := saveCfg(s.outputDir, aCfg); err != nil {
-			log.Fatalf("Failed to saveCfg of authority with %s", err)
-		}
-	}
+	// TODO: update katzenmint config?
 }
 
 func (s *katzenpost) generateNodesOfMixnet() {
@@ -532,7 +460,8 @@ func main() {
 	nrNodes := flag.Int("n", nrNodes, "Number of mixes.")
 	nrProviders := flag.Int("p", nrProviders, "Number of providers.")
 	voting := flag.Bool("v", false, "Generate voting configuration.")
-	nrVoting := flag.Int("nv", nrAuthorities, "Number of voting authorities.")
+	vRPCURL := flag.String("vrpc", "", "Voting RPC URL of katzenmint.")
+	goBinDir := flag.String("g", "/go/bin", "Path to golang bin.")
 	baseDir := flag.String("b", "/conf", "Path to for DataDir in the config files.")
 	outputDir := flag.String("o", "./output", "Output path of the generate config files.")
 	authAddress := flag.String("a", "127.0.0.1", "Non-voting authority public ip address.")
@@ -553,6 +482,7 @@ func main() {
 		os.Exit(-1)
 	}
 	s.outputDir = outDir
+	s.goBinDir = *goBinDir
 	s.baseDir = *baseDir
 	err = os.Mkdir(s.outputDir, 0700)
 	if err != nil && err.(*os.PathError).Err.Error() != "file exists" {
@@ -564,7 +494,7 @@ func main() {
 	s.voting = *voting
 	s.nrProviders = *nrProviders
 	s.nrNodes = *nrNodes
-	s.nrVoting = *nrVoting
+	s.vRPCURL = *vRPCURL
 	s.onlyMixNode = *mixNodeConfig
 	s.onlyProviderNode = *providerNodeConfig
 	s.publicIPAddress = *publicIPAddress
@@ -612,27 +542,11 @@ func main() {
 	}
 }
 
-func basedir(cfg interface{}) string {
-	switch cfg.(type) {
-	case *sConfig.Config:
-		return cfg.(*sConfig.Config).Server.DataDir
-	case *aConfig.Config:
-		return cfg.(*aConfig.Config).Authority.DataDir
-	case *vConfig.Config:
-		return cfg.(*vConfig.Config).Authority.DataDir
-	default:
-		log.Fatalf("identifier() passed unexpected type")
-		return ""
-	}
-}
-
 func configName(cfg interface{}) string {
 	switch cfg.(type) {
 	case *sConfig.Config:
 		return "katzenpost.toml"
 	case *aConfig.Config:
-		return "authority.toml"
-	case *vConfig.Config:
 		return "authority.toml"
 	default:
 		log.Fatalf("identifier() passed unexpected type")
@@ -646,8 +560,6 @@ func identifier(cfg interface{}) string {
 		return cfg.(*sConfig.Config).Server.Identifier
 	case *aConfig.Config:
 		return "nonvoting"
-	case *vConfig.Config:
-		return cfg.(*vConfig.Config).Authority.Identifier
 	default:
 		log.Fatalf("identifier() passed unexpected type")
 		return ""
@@ -655,7 +567,7 @@ func identifier(cfg interface{}) string {
 }
 
 func saveCfg(outputDir string, cfg interface{}) error {
-	os.Mkdir(filepath.Join(outputDir, identifier(cfg)), 0700)
+	_ = os.Mkdir(filepath.Join(outputDir, identifier(cfg)), 0700)
 
 	fileName := filepath.Join(
 		outputDir, identifier(cfg), configName(cfg),
@@ -671,17 +583,6 @@ func saveCfg(outputDir string, cfg interface{}) error {
 	return enc.Encode(cfg)
 }
 
-// links beteween voting authorities
-func (s *katzenpost) apk(a *vConfig.Config) *eddsa.PublicKey {
-	priv := filepath.Join(s.outputDir, a.Authority.Identifier, "identity.private.pem")
-	public := filepath.Join(s.outputDir, a.Authority.Identifier, "identity.public.pem")
-	idKey, err := eddsa.Load(priv, public, rand.Reader)
-	if err != nil {
-		panic(err)
-	}
-	return idKey.PublicKey()
-}
-
 // links between mix and providers
 func (s *katzenpost) spk(a *sConfig.Config) *eddsa.PublicKey {
 	priv := filepath.Join(s.outputDir, a.Server.Identifier, "identity.private.pem")
@@ -691,14 +592,4 @@ func (s *katzenpost) spk(a *sConfig.Config) *eddsa.PublicKey {
 		panic(err)
 	}
 	return idKey.PublicKey()
-}
-
-func (s *katzenpost) alk(a *vConfig.Config) *ecdh.PublicKey {
-	linkpriv := filepath.Join(s.outputDir, a.Authority.Identifier, "link.private.pem")
-	linkpublic := filepath.Join(s.outputDir, a.Authority.Identifier, "link.public.pem")
-	linkKey, err := ecdh.Load(linkpriv, linkpublic, rand.Reader)
-	if err != nil {
-		panic(err)
-	}
-	return linkKey.PublicKey()
 }
